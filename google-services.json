@@ -9,7 +9,7 @@
       "client_info": {
         "mobilesdk_app_id": "1:639565915655:android:4fa9f1cec29d7e1b63aca2",
         "android_client_info": {
-          "package_name": "com.bibekparajuli.khaja"
+          "package_name": "com.bibekparajuli.khajaghar"
         }
       },
       "oauth_client": [
@@ -17,7 +17,7 @@
           "client_id": "639565915655-o3rougkeh3dmakfee2d1tr6ut0s9r31g.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "com.bibekparajuli.khaja",
+            "package_name": "com.bibekparajuli.khajaghar",
             "certificate_hash": "9e87ce120e5f2c4ddbe0e99b7f8e0f37210483ba"
           }
         },
