@@ -25,11 +25,30 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { auth, db } from '../src/constants/firebase';
 
-// Dark theme similar to kitchen.tsx
+import { auth, db } from '../src/constants/firebase';
+import {
+  updatePassword,
+  GoogleAuthProvider,
+  signInWithPopup
+} from 'firebase/auth';
+
+import { Platform, ActivityIndicator, Dimensions } from 'react-native';
+import { googleProvider } from '../src/constants/firebase';
+import { Colors } from '@/constants/theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { BlurView } from 'expo-blur';
+import * as Location from 'expo-location';
+import { useNotifications } from '../src/components/NotificationProvider';
+import NotificationBell from '../src/components/NotificationBell';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+
+
+// Reverted to dark theme while keeping the primary accent for new UI elements
 const theme = {
   pageBg: '#0A0A0A',
   card: '#1C1C1E',
@@ -37,10 +56,13 @@ const theme = {
   text: '#F2F2F7',
   white: '#FFFFFF',
   secondaryText: '#8E8E93',
+  primary: '#FF5C2A', // Vibrant orange accent
   blue: '#007AFF',
   green: '#34C759',
   red: '#FF3B30',
   gray: '#48484A',
+  dark: '#000000',
+  yellow: '#FFCC00',
   radius: 14,
   pad: 16,
   shadow: {
@@ -50,6 +72,130 @@ const theme = {
     offset: { width: 0, height: 5 },
   },
 };
+
+const CATEGORIES = [
+  { id: 'all', name: 'All', emoji: '🍴' },
+  { id: 'burger', name: 'Burger', emoji: '🍔' },
+  { id: 'pizza', name: 'Pizza', emoji: '🍕' },
+  { id: 'salad', name: 'Salad', emoji: '🥗' },
+  { id: 'sushi', name: 'Sushi', emoji: '🍣' },
+  { id: 'taco', name: 'Taco', emoji: '🌮' },
+];
+
+
+const FLIRTY_GREETINGS = [
+  // English
+  "Are you a pizza? Because you've got a pizza my heart 🍕",
+  "Is your name Wi-Fi? Because I'm feeling a strong connection to this menu 🍔",
+  "You're the mac to my cheese 🧀",
+  "Hungry for love, or just hungry? 🤤",
+  "You looking like a snack today! 🍟",
+  "I love you from my head tomatoes 🍅",
+  "Let's give 'em something to taco 'bout 🌮",
+  "You guac my world 🥑",
+  "You're my soy-mate 🍣",
+  "I'm soy into you! 🍜",
+  "You're my everything bagel 🥯",
+  "I'm donuts about you 🍩",
+  "You hold the ki-wi to my heart 🥝",
+  "I love you berry much 🍓",
+  "We make a great pear 🍐",
+  "You're one in a melon 🍉",
+  "I find you a-peel-ing 🍌",
+  "Words can't espresso how much you mean to me ☕",
+  "You're looking spicy today! 🌶️",
+  "I'm kind of a big dill 🥒",
+  "You're the apple of my ribeye 🥩",
+  "Olive you so much 🫒",
+  "You're my butter half 🧈",
+  "I'm nacho average delivery app 🌮",
+  "Looking sweet as honey today 🍯",
+  "Are you food? Because suddenly I'm craving you more than my midnight snacks.",
+  "My stomach said pizza, but my heart said you.",
+  "I came for the food… but somehow you became my favorite flavor.",
+  "If you were on the menu, I'd order you every day.",
+  "I thought I was hungry for fries… turns out I was just hungry for you.",
+  "Some people crave chocolate, I crave your attention.",
+  "This food is good… but sharing it with you would make it perfect.",
+  "You must be a secret ingredient, because everything feels better when you're around.",
+  "Forget dessert, you're already the sweetest thing here.",
+  "My diet plan failed the moment you became my favorite craving.",
+
+  // Hindi
+  "Kya aap burger ho? Kyunki aap mere dil ke paas ho 🍔",
+  "Bhook lagi hai ya sirf meri yaad aayi? 😏",
+  "Momo se bhi zyada hot lag rahe ho aaj 🔥",
+  "Aapke bina khana feeka lagta hai 🥺",
+  "Pizza se pyaar hai ya mujhse? 🍕",
+  "Aapki smile jalebi ki tarah meethi hai 🥨",
+  "Kya menu mein aapko order kar sakta hoon? 😉",
+  "Biryani ho aap, har roz chahiye 🍲",
+  "Kuch teekha ho jaye, ya aap already kaafi ho? 🌶️",
+  "Mera dil butter chicken ki tarah pighal gaya 🍗",
+  "Aap mere chai ki patti ho ☕",
+  "Samosa bina aloo kaisa? Mai aapke bina waisa 🥟",
+  "Aap ho toh har din diwali, warna khali thali 🍽️",
+  "Golgappa ho tum, dekh ke mooh mein paani aa gaya 🤤",
+  "Kya aap momos ki lal chutney ho? Boht teekhi ho! 🌶️",
+  "Aap paneer jaisi soft ho 🧀",
+  "Aap mere dil ka thikana ho, jaise pet ka khana ho 💖",
+  "Rasgulla jaisi baatein hain aapki ⚪",
+  "Aapko dekhte hi bhook aur badh jaati hai 😋",
+  "Dil maange more, pet maange food! 🍕",
+  "Aapke saath toh lauki bhi tasty lagti hai 🥒",
+  "Khana toh bahana hai, asli maksad toh aapse milna hai 😉",
+  "Aap mere jivan ka tadka ho 🍲", // Tadka emoji
+  "Aloo paratha with makkhan, you with me! 🧈",
+  "Chole bhature jaisi jodi hai hamari 🍛",
+  "Jab bhi dil bhookha ho, khana Khaja se mangata hoon… par asli craving toh tumhari hai.",
+  "Khaja se khana jaldi aa jata hai, kaash tum bhi meri zindagi mein aise hi delivery ho jaate.",
+  "Aaj Khaja se khana order kiya hai… par dil abhi bhi tumhe add to cart karna chahta hai.",
+  "Khaja se khana toh roz aata hai, par tum jaisi special delivery abhi tak nahi aayi.",
+  "Khaja ka delivery boy darwaza khatkhatata hai… kaash ek din tum surprise delivery ban kar aa jao.",
+  "Bhook lage toh Khaja hai… par dil lage toh bas tum ho.",
+  "Khaja par khana dhoondh raha tha, lekin dil ne kaha ‘tumhe hi order kar lo.’",
+  "Khaja se khana 30 minute mein mil jata hai… par tumhara reply usse bhi zyada intezaar karwata hai.",
+  "Khana Khaja se aata hai… aur muskaan tumhara naam dekh kar.",
+  "Khaja se khana order kiya tha, lekin dil ne kaha asli treat toh tum ho.",
+
+  // Nepali
+  "Momo bhanda mitho timi chau 🥟",
+  "Bhok lagyo? Khana khane haina? 😋",
+  "Suntala jasto muskan timro 🍊",
+  "Chowmein ko pyala, timi chau babal 🍜",
+  "Timi bina ko jindagi, chiya bina ko churot jastai ho ☕",
+  "Sel roti jastai golo golo kura nagara na 😉",
+  "Dal bhat power, 24 hour! Tara timi ta mero lifetime power 🍛",
+  "Timro mayale malai bhokai lagdaina 😍",
+  "Chatpate bhanda piro chau timi 🌶️",
+  "Timi Mero Jivan ko Sekuwa ho 🍢",
+  "Momo ko achar jastai spicy chau 🔥",
+  "Aaba ta bhok pani badhyo timlai dekhera 🤤",
+  "Baluwa ma pani, mero dil ma timi 💧",
+  "Timi mero dhido ma ghyu jastai chau 🧈",
+  "Yesto mitho kura na gara, cheeni lagla 🍬",
+  "Kasam, timi ta gundruk ko achar bhanda ni khatra chau 🥬",
+  "Timi lai herna paye pachi, thukpa pani chaindana 🍜",
+  "Aalu tama ko swad, timro mayako yaad 🍲",
+  "Timi lai bhetera aaja bhok nai haraayo... Haina kya, badhyo! 🍕",
+  "Kaha thiyau timi yati barsa? Khaja khana mildaina? 🍽️",
+  "Timro ra mero jodi ta khasi ko masu ra chiura jastai chha 🐐",
+  "Sukkha roti khada pani timro yad le rasilo huncha 🫓",
+  "Timlai k bhanu, sweet ki spicy? 🌶️🍫",
+  "Timro lagi ta chow chow ni falame ma pakauchu 🍜",
+  "Timi lai herna ta malai kaile pani bhok lagdaina, eh wait lagcha! 👀",
+  "Timro yaad aauda bhok jhan badhcha… momo ra timi duita nai chahiyo malai 🥟😉",
+  "Chatpate jasto piro mood cha aaja… ek plate le matra satisfy hudaina 🌶️😏",
+  "Chowmein ko smell aayo ki control garna garo huncha 🤤🍜",
+  "Diet bholi bata start huncha… aaja ta jhan mitho khana khanu parcha 😋🍕",
+  "Momo ko achar jasto piro kura garne man cha aaja 🔥🥟",
+  "Late night bhok sabai bhanda dangerous huncha… ekdam mitho khana chahiyo 🌙🍔",
+  "Timi jasto mitho kura, ani mitho dessert… perfect combo ho 🍰😉",
+  "Bhok lagyo bhane simple khana hudaina… ali piro, ali juicy chahiyo 😏🍗",
+  "Panipuri jasto surprise bhari khana… ek patak khaye pachi roknai garo huncha 🤤🥙",
+  "Mitho khana dekhe pachi control hudaina… dil le bhanchha ‘aaja cheat day ho’ 😋🔥",
+
+];
 
 function useMountFade(delay = 0) {
   const a = useRef(new Animated.Value(0)).current;
@@ -63,6 +209,91 @@ function useMountFade(delay = 0) {
     }).start();
   }, [a, delay]);
   return a;
+}
+
+function AnimatedCheckmark() {
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: 600,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, []);
+
+  const circleScale = progress.interpolate({
+    inputRange: [0, 0.4, 1],
+    outputRange: [0, 1.2, 1],
+  });
+
+  const shortWidth = progress.interpolate({
+    inputRange: [0, 0.4, 0.6, 1],
+    outputRange: [0, 0, 14, 14],
+  });
+
+  const longHeight = progress.interpolate({
+    inputRange: [0, 0.6, 1],
+    outputRange: [0, 0, 24],
+  });
+
+  return (
+    <Animated.View style={[styles.tickCircle, { transform: [{ scale: circleScale }] }]}>
+      <View style={{ width: 14, height: 24, transform: [{ translateY: -4 }, { translateX: -1 }, { rotate: '45deg' }] }}>
+        {/* Short part of check (draws from left tip towards vertex) */}
+        <Animated.View style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          height: 5,
+          width: shortWidth,
+          backgroundColor: theme.white,
+          borderTopLeftRadius: 2.5,
+          borderBottomLeftRadius: 2.5,
+        }} />
+        {/* Long part of check (draws from vertex towards top right) */}
+        <Animated.View style={{
+          position: 'absolute',
+          bottom: 0,
+          right: 0,
+          width: 5,
+          height: longHeight,
+          backgroundColor: theme.white,
+          borderTopRightRadius: 2.5,
+          borderTopLeftRadius: 2.5,
+          borderBottomRightRadius: 2.5,
+        }} />
+      </View>
+    </Animated.View>
+  );
+}
+
+function CelebrationSuccess({ children }: any) {
+  const scale = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(scale, {
+        toValue: 1,
+        tension: 50,
+        friction: 5,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      })
+    ]).start();
+  }, []);
+
+  return (
+    <Animated.View style={{ transform: [{ scale }], opacity, alignItems: 'center' }}>
+      {children}
+    </Animated.View>
+  );
 }
 
 function Card({
@@ -119,12 +350,12 @@ function Button({
     Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start();
 
   return (
-    <Animated.View style={{ transform: [{ scale }] }}>
+    <Animated.View style={[style, { transform: [{ scale }] }]}>
       <Pressable
         onPressIn={pressIn}
         onPressOut={pressOut}
         onPress={onPress}
-        style={[styles.button, { backgroundColor: color }, style]}
+        style={[styles.button, { backgroundColor: color, width: '100%' }]}
       >
         <Text style={styles.btnText}>{label}</Text>
       </Pressable>
@@ -144,6 +375,49 @@ function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: num
   return 2 * R * Math.asin(Math.sqrt(A));
 }
 
+function getStatusColor(status: string) {
+  switch (status) {
+    case 'requested':
+    case 'pending': return theme.blue;
+    case 'accepted':
+    case 'kitchen_preparing': return theme.blue;
+    case 'waiting_rider': return theme.blue;
+    case 'rider_assigned':
+    case 'assigned_to_rider':
+    case 'picked_up':
+    case 'on_the_way':
+    case 'out_for_delivery': return theme.green;
+    case 'rider_cancel_requested':
+    case 'rider_cancel_approved':
+    case 'rider_reported_not_returned': return theme.yellow;
+    case 'delivered': return theme.secondaryText;
+    case 'canceled':
+    case 'rejected': return theme.red;
+    case 'expired_reassign': return theme.gray;
+    default: return theme.secondaryText;
+  }
+}
+
+function getStatusText(status: string) {
+  switch (status) {
+    case 'requested':
+    case 'pending': return 'PENDING';
+    case 'accepted': return 'ACCEPTED';
+    case 'kitchen_preparing': return 'PREPARING FOOD';
+    case 'waiting_rider': return 'WAITING FOR RIDER';
+    case 'rider_assigned':
+    case 'assigned_to_rider': return 'RIDER ASSIGNED';
+    case 'rider_cancel_requested':
+    case 'rider_cancel_approved':
+    case 'rider_reported_not_returned': return 'RIDER DELAYED';
+    case 'picked_up': return 'PICKED UP';
+    case 'on_the_way': return 'RIDER IS ON THE WAY!';
+    case 'out_for_delivery': return 'OUT FOR DELIVERY';
+    default: return status.replace(/_/g, ' ').toUpperCase();
+  }
+}
+
+
 type KitchenProfile = {
   id: string;
   preferredName?: string;
@@ -159,27 +433,55 @@ type MenuItem = {
   name: string;
   price: number;
   imageUrl?: string | null;
+  dietary?: string;
+  outOfStock?: boolean;
+  totalRating?: number;
+  ratingCount?: number;
 };
+
 type Order = {
   id: string;
   status:
-    | 'requested'
-    | 'accepted'
-    | 'out_for_delivery'
-    | 'delivered'
-    | 'canceled'
-    | 'rejected'
-    | 'expired_reassign';
+  | 'requested'
+  | 'accepted'
+  | 'out_for_delivery'
+  | 'delivered'
+  | 'canceled'
+  | 'rejected'
+  | 'expired_reassign';
+  itemId?: string;
   itemName: string;
   total: number;
+  kitchenId: string;
   kitchenName: string;
   createdAt?: any;
   acceptedAt?: any;
   outForDeliveryAt?: any;
   deliveredAt?: any;
+  autoCanceled?: boolean;
+  autoCanceledReason?: string;
+  rejectionReason?: string;
+  cancellationReason?: string;
+  userNotifiedOfReport?: boolean;
+  userDismissedRejection?: boolean;
+  userConfirmedReceived?: boolean;
+  userDidNotReceiveReported?: boolean;
+  rating?: number;
+  ratingComment?: string;
+  updatedAt?: any;
 };
 
 export default function UserHome() {
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth } = Dimensions.get('window');
+  const pickCardWidth = 200; // Restoring to a larger "default" size
+  const pickGap = 16;
+  // Calculate the total width needed for 5 items in the horizontal scroll
+  const topPicksContainerWidth = (pickCardWidth + pickGap) * 5;
+  const [newMobilePassword, setNewMobilePassword] = useState('');
+  const [remarks, setRemarks] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [uid, setUid] = useState('');
   const [name, setName] = useState('');
   const [addr, setAddr] = useState('');
@@ -188,16 +490,132 @@ export default function UserHome() {
   const [items, setItems] = useState<MenuItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [nearbyOnly, setNearbyOnly] = useState(true);
-  const unsubItems = useRef<(() => void)[]>([]);
   const [show, setShow] = useState(false);
   const [sel, setSel] = useState<MenuItem | null>(null);
   const [qty, setQty] = useState(1);
   const [cod, setCOD] = useState(true);
-  const headerFade = useMountFade(0);
   const [savedLocation, setSavedLocation] = useState(false);
+
+  const [tab, setTab] = useState<'menu' | 'active' | 'history' | 'profile'>('menu');
+  const [activeCategory, setActiveCategory] = useState<string>('all');
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyDateFilter, setHistoryDateFilter] = useState<'all' | 'today' | 'month'>('today');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'delivered' | 'rejected'>('all');
+
+  const [activeRejection, setActiveRejection] = useState<Order | null>(null);
+  const [activeDelivery, setActiveDelivery] = useState<Order | null>(null);
+  const [activeReportWarning, setActiveReportWarning] = useState<Order | null>(null);
+  const [deliveryFeedback, setDeliveryFeedback] = useState<'prompt' | 'yes' | 'no'>('prompt');
+
+  const [reviewingOrder, setReviewingOrder] = useState<Order | null>(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+
+  const [greeting, setGreeting] = useState('');
+  const { unreadCount } = useNotifications();
+
+  const unsubItems = useRef<(() => void)[]>([]);
+  const headerFade = useMountFade(0);
+
+  // --- Search Placeholder Animation ---
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [searchPlaceholderIndex, setSearchPlaceholderIndex] = useState(0);
+  const searchPlaceholderOpacity = useRef(new Animated.Value(1)).current;
+
+  const searchTerms = useMemo(() => {
+    // Array.from(new Set(...)) to ensure unique item names if multiple kitchens have "Momo"
+    const uniqueNames = Array.from(new Set(items.map(i => i.name).filter(Boolean)));
+    const base = uniqueNames.slice(0, 10);
+    return base.length > 0 ? base : ['Momo', 'Burger', 'Pizza', 'Biryani'];
+  }, [items]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      Animated.timing(searchPlaceholderOpacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
+        setSearchPlaceholderIndex((prev) => (prev + 1) % searchTerms.length);
+        Animated.timing(searchPlaceholderOpacity, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
+      });
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [searchTerms]);
+  // -------------------------------------
+
+  const setupMobileLoginPassword = async () => {
+    if (newMobilePassword.length < 6) {
+      Alert.alert("Weak Password", "Password must be at least 6 characters.");
+      return;
+    }
+
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert("Error", "No active user found. Please log in again.");
+      return;
+    }
+
+    const isGoogleUser = user.providerData.some(p => p.providerId === GoogleAuthProvider.PROVIDER_ID);
+
+    try {
+      if (isGoogleUser && Platform.OS === 'web') {
+        Alert.alert(
+          "Security Check",
+          "For your security, you must sign in with Google one more time to set a new password. Click OK to proceed."
+        );
+        await signInWithPopup(auth, googleProvider);
+      }
+
+      await updatePassword(user, newMobilePassword);
+      Alert.alert("Success", "Password set! Use your email and this new password to login on the Expo Go app.");
+      setNewMobilePassword('');
+    } catch (e: any) {
+      console.error("Password set failed:", e);
+      Alert.alert(
+        "Update Failed",
+        "Authentication required. Please ensure you complete the Google sign-in pop-up immediately."
+      );
+    }
+  };
+
 
   const inc = () => setQty((q) => Math.min(20, q + 1));
   const dec = () => setQty((q) => Math.max(1, q - 1));
+
+  const fetchGreeting = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('usedFlirtyGreetings');
+      let used: number[] = stored ? JSON.parse(stored) : [];
+      if (used.length >= FLIRTY_GREETINGS.length) {
+        used = []; // reset if all used
+      }
+      const available = FLIRTY_GREETINGS.map((_, i) => i).filter(i => !used.includes(i));
+      const randomIndex = available[Math.floor(Math.random() * available.length)];
+      used.push(randomIndex);
+      await AsyncStorage.setItem('usedFlirtyGreetings', JSON.stringify(used));
+      setGreeting(FLIRTY_GREETINGS[randomIndex] || FLIRTY_GREETINGS[0]);
+    } catch (e) {
+      setGreeting(FLIRTY_GREETINGS[Math.floor(Math.random() * FLIRTY_GREETINGS.length)]);
+    }
+  };
+
+  useEffect(() => {
+    fetchGreeting();
+    const interval = setInterval(fetchGreeting, 5 * 60 * 1000); // 5 minutes
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    fetchGreeting();
+  }, [tab]);
+
+  const unsubAuthRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, async (u) => {
@@ -208,16 +626,45 @@ export default function UserHome() {
       setUid(u.uid);
 
       const uref = doc(db, 'users', u.uid);
-      const usnap = await getDoc(uref);
-      const d = usnap.data() as any;
-      setName(d?.preferredName || u.email?.split('@')[0] || 'User');
-      setAddr(d?.address || '');
-      if (d?.location?.lat && d?.location?.lng) {
-        setUserLoc({
-          lat: String(d.location.lat),
-          lng: String(d.location.lng),
-        });
-      }
+      const unsubUser = onSnapshot(uref, (usnap) => {
+        const d = usnap.data() as any;
+        if (d) {
+          setName(d.preferredName || u.email?.split('@')[0] || 'User');
+          setAddr(d.address || '');
+          if (d.location?.lat && d.location?.lng) {
+            setUserLoc({
+              lat: String(d.location.lat),
+              lng: String(d.location.lng),
+            });
+          }
+        }
+      });
+
+      // Auto-location fetch (Phase 1)
+      (async () => {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status !== 'granted') return;
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          const { latitude, longitude } = loc.coords;
+
+          setUserLoc(prev => {
+            if (prev.lat && prev.lng) return prev;
+            return { lat: String(latitude), lng: String(longitude) };
+          });
+
+          if (!addr) {
+            const rev = await Location.reverseGeocodeAsync({ latitude, longitude });
+            if (rev.length > 0) {
+              const r = rev[0];
+              const str = `${r.street || r.name || ''}, ${r.city || r.subregion || ''}`.trim().replace(/^,/, '').trim();
+              if (str && str !== ',') setAddr(str);
+            }
+          }
+        } catch (e) {
+          console.log("Auto-location failed", e);
+        }
+      })();
 
       const oq = query(
         collection(db, 'orders'),
@@ -231,16 +678,58 @@ export default function UserHome() {
           list.push({
             id: docx.id,
             status: o.status,
+            itemId: o.itemId,
             itemName: o.itemName,
             total: o.total,
+            kitchenId: o.kitchenId,
             kitchenName: o.kitchenName,
             createdAt: o.createdAt,
+            updatedAt: o.updatedAt,
             acceptedAt: o.acceptedAt,
             outForDeliveryAt: o.outForDeliveryAt,
             deliveredAt: o.deliveredAt,
+            rejectionReason: o.rejectionReason,
+            cancellationReason: o.cancellationReason,
+            userNotifiedOfReport: o.userNotifiedOfReport,
+            userDismissedRejection: o.userDismissedRejection,
+            userConfirmedReceived: o.userConfirmedReceived,
+            userDidNotReceiveReported: o.userDidNotReceiveReported,
+            rating: o.rating,
+            ratingComment: o.ratingComment,
           });
         });
         setOrders(list);
+
+        const now = Date.now();
+        const fifteenMins = 15 * 60 * 1000;
+
+        const newReject = list.find(o =>
+          o.status === 'rejected' &&
+          !o.userDismissedRejection &&
+          o.updatedAt?.toMillis &&
+          (now - o.updatedAt.toMillis()) < fifteenMins
+        );
+
+        const newDelivery = list.find(o =>
+          o.status === 'delivered' &&
+          !o.userConfirmedReceived &&
+          !o.userDidNotReceiveReported &&
+          o.updatedAt?.toMillis &&
+          (now - o.updatedAt.toMillis()) < fifteenMins
+        );
+
+        const newReportWarning = list.find(o =>
+          o.status === 'canceled' &&
+          o.cancellationReason &&
+          o.userNotifiedOfReport === false
+        );
+
+        if (newReject && !activeRejection) setActiveRejection(newReject);
+        if (newReportWarning && !activeReportWarning) setActiveReportWarning(newReportWarning);
+        if (newDelivery && !activeDelivery) {
+          setActiveDelivery(newDelivery);
+          setDeliveryFeedback('prompt');
+        }
       });
 
       const kq = query(
@@ -253,6 +742,7 @@ export default function UserHome() {
         unsubItems.current = [];
         const kitchens: KitchenProfile[] = [];
         snap.forEach((k) => kitchens.push({ id: k.id, ...(k.data() as any) }));
+        setItems((prev) => prev.filter((it) => kitchens.some((k) => k.id === it.kitchenId)));
 
         kitchens.forEach((k) => {
           const iq = query(
@@ -270,6 +760,10 @@ export default function UserHome() {
                 name: d.name,
                 price: d.price,
                 imageUrl: d.imageUrl || null,
+                dietary: d.dietary || null,
+                outOfStock: !!d.outOfStock,
+                totalRating: d.totalRating || 0,
+                ratingCount: d.ratingCount || 0,
               });
             });
             setItems((prev) => {
@@ -282,6 +776,7 @@ export default function UserHome() {
       });
 
       return () => {
+        unsubUser();
         unsubOrders();
         unsubK();
         unsubItems.current.forEach((fn) => fn());
@@ -289,78 +784,8 @@ export default function UserHome() {
       };
     });
 
+    unsubAuthRef.current = unsubAuth;
     return () => unsubAuth();
-  }, []);
-
-  // REFRESH ON FOREGROUND
-  useEffect(() => {
-    const handleStateChange = (nextState: AppStateStatus) => {
-      if (nextState === 'active') {
-        fetchAll();
-        fetchKitchens();
-      }
-    };
-    const subscription = AppState.addEventListener('change', handleStateChange);
-    return () => subscription.remove();
-  }, []);
-
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const onRefresh = async () => {
-    setIsRefreshing(true);
-    await Promise.all([fetchAll(), fetchKitchens()]);
-    setIsRefreshing(false);
-  };
-
-  const fetchAll = async () => {
-    const u = auth.currentUser;
-    if (u) {
-      try {
-        const [profile, orderList, menuItems] = await Promise.all([
-          api.getUserProfile(u.uid),
-          api.getUserOrders(u.uid),
-          api.getMenuItems(),
-        ]);
-        if (profile) {
-          setName(profile.preferredName || '');
-          setAddr(profile.address || '');
-          setUserLoc({ lat: profile.location?.lat?.toString() || '', lng: profile.location?.lng?.toString() || '' });
-        }
-        setOrders(orderList || []);
-
-        const list = orderList || [];
-        const newReject = list.find(o => o.status === 'rejected' && !o.userDismissedRejection);
-        const newDelivery = list.find(o => o.status === 'delivered' && !o.userConfirmedReceived && !o.userDidNotReceiveReported);
-        const newReportWarning = list.find(o => o.status === 'canceled' && o.cancellationReason && o.userNotifiedOfReport === false);
-
-        if (newReject && !activeRejection) setActiveRejection(newReject);
-        if (newReportWarning && !activeReportWarning) setActiveReportWarning(newReportWarning);
-        if (newDelivery && !activeDelivery) {
-          setActiveDelivery(newDelivery);
-          setDeliveryFeedback('prompt');
-        }
-
-        if (menuItems) setItems(menuItems);
-      } catch (_) {}
-    }
-  };
-
-  const fetchKitchens = async () => {
-    try {
-      const ks = await api.getOpenKitchens();
-      const m = new Map<string, KitchenProfile>();
-      (ks || []).forEach((k: any) => m.set(k.id, k));
-      setKitchensCache(m);
-    } catch (_) {}
-  };
-
-  useEffect(() => {
-    const interval = setInterval(fetchAll, 2000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    const interval = setInterval(fetchKitchens, 2000);
-    return () => clearInterval(interval);
   }, []);
 
   // AUTO DISMISS DELIVERY PROMPT (5 SECONDS)
@@ -380,15 +805,21 @@ export default function UserHome() {
   useEffect(() => {
     const tenMin = 10 * 60 * 1000;
     const interval = setInterval(() => {
-      orders.forEach((o: Order) => {
-        const createdAtMs = o.createdAt ? new Date(o.createdAt).getTime() : 0;
+      orders.forEach((o) => {
+        const createdAtMs = o.createdAt?.toMillis?.() ?? 0;
         if (o.status === "requested" && Date.now() - createdAtMs > tenMin) {
-          api.updateOrder(o.id, { status: 'canceled', autoCanceled: true, autoCanceledReason: 'Kitchen did not accept within 10 minutes' }).catch(console.error);
+          updateDoc(doc(db, "orders", o.id), {
+            status: "canceled",
+            updatedAt: serverTimestamp(),
+            autoCanceled: true,
+            autoCanceledReason: "Kitchen did not accept within 10 minutes",
+          }).catch(console.error);
         }
       });
-    }, 30000);
+    }, 30000); // check every 30 seconds
     return () => clearInterval(interval);
   }, [orders]);
+
 
   const saveAddress = async () => {
     await updateDoc(doc(db, 'users', uid), {
@@ -440,6 +871,12 @@ export default function UserHome() {
       score += Math.max(0, 200 - Math.min(200, Math.round(km * 20)));
     }
 
+    // Rating score (0-5 stars)
+    if (it.ratingCount && it.ratingCount > 0) {
+      const avg = (it.totalRating || 0) / it.ratingCount;
+      score += avg * 100; // Adding up to 500 points for a 5-star rating
+    }
+
     return score;
   };
 
@@ -463,14 +900,22 @@ export default function UserHome() {
       .map((x) => x.it);
 
     if (!nearbyOnly) return ranked;
-    // when nearbyOnly = true, prefer high score; basic filter
-    return ranked.filter((_, idx) => idx < 60); // same items, just capped
+    // when nearbyOnly  true  basic filter
+    return ranked.filter((_, idx) => idx < 60); // same items just capped
   }, [items, search, nearbyOnly, addr, userLoc, kitchensCache]);
 
   const openBuy = (it: MenuItem) => {
+    if (it.outOfStock) {
+      if (Platform.OS === 'web') {
+        window.alert("Sorry, this item is currently out of stock!");
+      } else {
+        Alert.alert("Out of Stock", "Sorry, this item is currently out of stock!");
+      }
+      return;
+    }
     setSel(it);
     setQty(1);
-    setCOD(true);
+    setRemarks('');
     setShow(true);
   };
   const closeBuy = () => setShow(false);
@@ -492,40 +937,79 @@ export default function UserHome() {
 
   const confirmBuy = async () => {
     if (!sel) return;
+
     try {
-      const kDocSnap = await getDoc(doc(db, 'kitchens', sel.kitchenId));
-      const kDoc = kDocSnap.data() as any;
+      const kDoc = kitchensCache.get(sel.kitchenId);
+
+
+      const authUser = auth.currentUser;
+
+
+      let phone = null;
+      let email = authUser?.email || null;
+
+      const uSnap = await getDoc(doc(db, 'users', uid));
+      if (uSnap.exists()) {
+        const uData = uSnap.data();
+        phone = uData?.phone || null;
+        email = uData?.email || email;
+      }
+
       const total = await totalFor(sel, qty);
+
+      setShow(false);
+
+      let deliveryFee = 20;
+      if (kDoc?.location?.lat && kDoc.location.lng && userLoc.lat && userLoc.lng) {
+        const km = haversineKm(
+          { lat: parseFloat(userLoc.lat), lng: parseFloat(userLoc.lng) },
+          { lat: kDoc.location.lat, lng: kDoc.location.lng }
+        );
+        deliveryFee = Math.max(20, Math.round(2 * km) + 10);
+      }
+
       await addDoc(collection(db, 'orders'), {
         userId: uid,
+        userName: name,
+        userEmail: email,
+        userPhone: phone,
+        remarks: remarks || null,
         kitchenId: sel.kitchenId,
         kitchenName: kDoc?.preferredName || sel.kitchenName,
         itemId: sel.id,
         itemName: sel.name,
         itemPrice: sel.price,
         quantity: qty,
-        paymentMethod: cod ? 'cod' : 'cod',
+        paymentMethod: 'cod',
         userAddress: addr || null,
+        deliveryLat: userLoc.lat ? parseFloat(userLoc.lat) : null,
+        deliveryLng: userLoc.lng ? parseFloat(userLoc.lng) : null,
         kitchenAddress: kDoc?.address || null,
-        deliveryFee: total - sel.price * qty,
+        kitchenLat: kDoc?.location?.lat || null,
+        kitchenLng: kDoc?.location?.lng || null,
+        deliveryFee,
         total,
         status: 'requested',
         userConfirmedReceived: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-      setShow(false);
-      Alert.alert('Order placed', 'Waiting for kitchen to accept.');
     } catch (e: any) {
+      console.error("Order failed:", e);
       Alert.alert('Error', e?.message || 'Failed to place order');
     }
   };
 
+
+
+
+
   const cancelOrder = async (orderId: string, status: string) => {
-    if (status !== 'requested') {
-      Alert.alert('Cannot cancel', 'Only pending requests can be canceled.');
+    if (status !== 'requested' && status !== 'expired_reassign') {
+      Alert.alert('Cannot cancel', 'Only pending or expired requests can be canceled.');
       return;
     }
+
     await updateDoc(doc(db, 'orders', orderId), {
       status: 'canceled',
       updatedAt: serverTimestamp(),
@@ -534,196 +1018,714 @@ export default function UserHome() {
 
   const reassignOrder = async (o: Order) => {
     await updateDoc(doc(db, 'orders', o.id), {
-      status: 'expired_reassign',
+      status: 'canceled', // mark as canceled so it moves to history
       updatedAt: serverTimestamp(),
     });
-    Alert.alert('Marked for reassign', 'Pick another kitchen from the list.');
+    setTab('menu');
+    setSearch(o.itemName);
+    Alert.alert('Reassign Order', `Looking for "${o.itemName}". Pick another kitchen from the list.`);
   };
 
   const logout = async () => {
+    if (unsubAuthRef.current) {
+      unsubAuthRef.current();
+      unsubAuthRef.current = null;
+    }
     await signOut(auth);
     router.replace('/login');
   };
 
+  const dismissRejection = async () => {
+    if (activeRejection) {
+      await updateDoc(doc(db, 'orders', activeRejection.id), {
+        userDismissedRejection: true,
+      });
+      setActiveRejection(null);
+    }
+  };
+
+  const dismissReportWarning = async () => {
+    if (activeReportWarning) {
+      await updateDoc(doc(db, 'orders', activeReportWarning.id), {
+        userNotifiedOfReport: true,
+      });
+      setActiveReportWarning(null);
+    }
+  };
+
+  const submitReview = async () => {
+    if (!reviewingOrder || isSubmittingReview) return;
+    setIsSubmittingReview(true);
+    try {
+      const orderRef = doc(db, 'orders', reviewingOrder.id);
+      await updateDoc(orderRef, {
+        rating: reviewRating,
+        ratingComment: reviewComment,
+        updatedAt: serverTimestamp(),
+      });
+
+      // Update item rating in kitchen's collection
+      // item ID in order is retrieved as itemId
+      const itemRef = doc(db, 'kitchens', reviewingOrder.kitchenId, 'items', (reviewingOrder as any).itemId);
+      const itemSnap = await getDoc(itemRef);
+      if (itemSnap.exists()) {
+        const itemData = itemSnap.data();
+        await updateDoc(itemRef, {
+          totalRating: (itemData.totalRating || 0) + reviewRating,
+          ratingCount: (itemData.ratingCount || 0) + 1,
+        });
+      }
+
+      setReviewingOrder(null);
+      setReviewRating(5);
+      setReviewComment('');
+      Alert.alert('Thank you!', 'Your review has been submitted.');
+    } catch (e: any) {
+      console.error('Review failed:', e);
+      Alert.alert('Error', 'Failed to submit review.');
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
+  const deliverYes = async () => {
+    if (activeDelivery) {
+      await updateDoc(doc(db, 'orders', activeDelivery.id), {
+        userConfirmedReceived: true,
+      });
+      setDeliveryFeedback('yes');
+      // Auto close after 3s
+      setTimeout(() => {
+        setActiveDelivery(null);
+      }, 3000);
+    }
+  };
+
+  const deliverNo = async () => {
+    if (activeDelivery) {
+      await updateDoc(doc(db, 'orders', activeDelivery.id), {
+        userDidNotReceiveReported: true,
+        kitchenNotifiedOfReport: false,
+      });
+      setDeliveryFeedback('no');
+
+      try {
+        // Increment kitchen missing food report count
+        const kref = doc(db, 'kitchens', activeDelivery.kitchenId);
+        const kSnap = await getDoc(kref);
+        const kData = kSnap.data();
+        let kEmail = 'pabibha@gmail.com';
+
+        if (kSnap.exists() && kData) {
+          kEmail = kData.email || kEmail;
+          const newCount = (kData.missing_food_reports || 0) + 1;
+          await updateDoc(kref, {
+            missing_food_reports: newCount,
+            banned: newCount >= 5 ? true : (kData.banned || false),
+            isOpen: newCount >= 5 ? false : (kData.isOpen || false),
+          });
+
+          if (newCount >= 5) {
+            // also ban the user profile of the kitchen
+            await updateDoc(doc(db, 'users', activeDelivery.kitchenId), {
+              banned: true,
+              isOpen: false
+            });
+          }
+        }
+
+        const userE = email || auth.currentUser?.email || '';
+
+        // Email to User
+        await addDoc(collection(db, 'mail'), {
+          to: userE,
+          message: {
+            subject: 'We are so sorry!',
+            text: `Hi ${name},\n\nWe apologize that you did not receive your food order (${activeDelivery.itemName}) from ${activeDelivery.kitchenName}.\n\nWe are investigating this with the kitchen immediately and will be in touch resolving this issue right away.\n\nThank you,\nThe Food Delivery Team`,
+          }
+        });
+
+        // Email to Kitchen (Warning)
+        await addDoc(collection(db, 'mail'), {
+          to: kEmail,
+          message: {
+            subject: 'WARNING: Missing Food Report',
+            text: `URGENT Warning for ${activeDelivery.kitchenName},\n\nA user (${name}) has reported that they did NOT receive their order (${activeDelivery.itemName}) which was marked as "Delivered".\n\nOrder ID: ${activeDelivery.id}\nPlease investigate this immediately to prevent account suspension.\n\nThank you,\nThe Food Delivery Team`,
+          }
+        });
+
+        // Save report to database
+        await addDoc(collection(db, 'reports'), {
+          type: 'missing_food',
+          orderId: activeDelivery.id,
+          userId: uid,
+          userEmail: email || auth.currentUser?.email,
+          kitchenId: activeDelivery.kitchenId,
+          kitchenName: activeDelivery.kitchenName,
+          itemName: activeDelivery.itemName,
+          total: activeDelivery.total,
+          createdAt: serverTimestamp(),
+          status: 'pending_investigation'
+        });
+      } catch (err) {
+        console.error("Failed to submit report:", err);
+      }
+    }
+  };
+
+  const closeDeliveryModal = () => {
+    setActiveDelivery(null);
+  };
+
+  const activeOrders = orders.filter(o => ['pending', 'accepted', 'waiting_rider', 'assigned_to_rider', 'rider_assigned', 'rider_cancel_requested', 'rider_cancel_approved', 'rider_reported_not_returned', 'kitchen_preparing', 'picked_up', 'on_the_way', 'requested', 'out_for_delivery', 'expired_reassign'].includes(o.status));
+  const historyOrdersList = orders.filter(o => ['delivered', 'canceled', 'rejected'].includes(o.status));
+
   return (
-    <>
+    <View style={{ flex: 1, backgroundColor: theme.pageBg }}>
+
       <ScrollView
         style={{ backgroundColor: theme.pageBg }}
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[
+          styles.container,
+          {
+            paddingTop: insets.top + 10,
+            paddingBottom: insets.bottom + 120, // Enough room to clear the floating tab bar
+          }
+        ]}
       >
         {/* HEADER */}
         <Animated.View style={[styles.header, { opacity: headerFade }]}>
-          <Text style={styles.hi}>Hi {name} 👋</Text>
-          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-            <Pressable style={styles.settingsBtn}>
-              <Ionicons name="menu" size={18} color={theme.white} />
-            </Pressable>
-            <Button
-              label="Logout"
-              color={theme.red}
-              onPress={logout}
-              style={{ paddingHorizontal: 14 }}
+          <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }} onPress={() => router.push('/location_map' as any)}>
+            <Ionicons name="location" size={24} color={theme.primary} />
+            <Text style={{ fontSize: 16, color: theme.text, fontWeight: '600' }} numberOfLines={1}>
+              {addr ? `${addr.split(',')[0]}..` : 'Set Delivery Location'}
+            </Text>
+            <Ionicons name="chevron-down" size={16} color={theme.secondaryText} />
+          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+            <NotificationBell
+              count={unreadCount}
+              onPress={() => setTab('active')}
+              color={theme.text}
             />
+            <TouchableOpacity style={styles.settingsBtn} onPress={logout}>
+              <Ionicons name="log-out-outline" size={24} color={theme.red} />
+            </TouchableOpacity>
           </View>
         </Animated.View>
 
-        {/* ADDRESS CARD */}
-        <Card delay={50} style={{ gap: 12 }}>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <Text style={styles.sectionTitle}>Delivery address</Text>
-            {savedLocation && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Ionicons name="checkmark-circle" size={18} color={theme.green} />
-                <Text style={{ color: theme.green, fontSize: 12 }}>Saved</Text>
+
+        {tab === 'profile' && (
+          <View style={{ gap: 20 }}>
+            {/* ADDRESS CARD */}
+            <Card delay={50} style={{ gap: 12 }}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <Text style={styles.sectionTitle}>Delivery address</Text>
+                {savedLocation && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Ionicons name="checkmark-circle" size={18} color={theme.green} />
+                    <Text style={{ color: theme.green, fontSize: 12 }}>Saved</Text>
+                  </View>
+                )}
+              </View>
+
+              <TextInput
+                value={addr}
+                onChangeText={setAddr}
+                placeholder="eg. Itahari-4, College Road"
+                placeholderTextColor={theme.secondaryText}
+                style={styles.input}
+              />
+
+              <View style={styles.row}>
+                <TextInput
+                  value={userLoc.lat ?? ''}
+                  onChangeText={(t) => setUserLoc((s) => ({ ...s, lat: t }))}
+                  placeholder="Lat (optional)"
+                  placeholderTextColor={theme.secondaryText}
+                  style={[styles.input, { flex: 1, minWidth: 0 }]}
+                  keyboardType="numeric"
+                />
+                <TextInput
+                  value={userLoc.lng ?? ''}
+                  onChangeText={(t) => setUserLoc((s) => ({ ...s, lng: t }))}
+                  placeholder="Lng (optional)"
+                  placeholderTextColor={theme.secondaryText}
+                  style={[styles.input, { flex: 1, minWidth: 0 }]}
+                  keyboardType="numeric"
+                />
+              </View>
+
+              <TouchableOpacity
+                style={styles.mapBtn}
+                onPress={() => router.push('/location_map' as any)}
+              >
+                <Ionicons name="map-outline" size={20} color={theme.white} />
+                <Text style={styles.mapBtnText}>Pick from Map / Use GPS</Text>
+              </TouchableOpacity>
+
+              <Button label="Save Address" color={theme.blue} onPress={saveAddress} />
+            </Card>
+
+            <Card delay={100} style={{ gap: 12 }}>
+              <Text style={styles.sectionTitle}>Update Password</Text>
+              <Text style={{ color: theme.secondaryText, fontSize: 13, marginBottom: 8 }}>
+                Set a password to login on your mobile app using your email address.
+              </Text>
+              <TextInput
+                value={newMobilePassword}
+                onChangeText={setNewMobilePassword}
+                placeholder="New mobile password (min. 6 chars)"
+                placeholderTextColor={theme.secondaryText}
+                secureTextEntry
+                style={styles.input}
+              />
+              <Button label="Set Password" color={theme.gray} onPress={setupMobileLoginPassword} />
+            </Card>
+
+            <Card delay={150} style={{ gap: 12 }}>
+              <Text style={styles.sectionTitle}>Rider Mode</Text>
+              <Text style={{ color: theme.secondaryText, fontSize: 13, marginBottom: 8 }}>
+                Switch to rider mode to start delivering orders and earning money.
+              </Text>
+              <Button
+                label="Switch to Rider Mode"
+                color={theme.primary}
+                onPress={() => router.push('/rider')}
+              />
+            </Card>
+          </View>
+        )}
+
+        {tab === 'menu' && (
+          <View style={{ gap: 24, paddingBottom: 20 }}>
+            {/* GREETING SECTION */}
+            <View style={{ marginBottom: -10, paddingHorizontal: 4 }}>
+              <Text style={styles.hi}>Hi {name}!</Text>
+              <Text style={{ color: theme.secondaryText, fontSize: 14, marginTop: 4 }}>
+                {greeting}
+              </Text>
+            </View>
+
+            {/* SEARCH */}
+            <View style={styles.searchContainer}>
+              <View style={styles.searchBar}>
+                <Ionicons name="search" size={20} color={theme.secondaryText} />
+                <View style={{ flex: 1, justifyContent: 'center' }}>
+                  {(!isSearchFocused && search.length === 0) && (
+                    <View
+                      pointerEvents="none"
+                      style={{
+                        position: 'absolute',
+                        left: 10,
+                        right: 0,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Text style={{ color: theme.secondaryText, fontSize: 15 }}>
+                        Search "
+                      </Text>
+                      <Animated.Text
+                        style={{
+                          color: theme.secondaryText,
+                          fontSize: 15,
+                          opacity: searchPlaceholderOpacity,
+                        }}
+                        numberOfLines={1}
+                      >
+                        {searchTerms[searchPlaceholderIndex]}
+                      </Animated.Text>
+                      <Text style={{ color: theme.secondaryText, fontSize: 15 }}>
+                        "
+                      </Text>
+                    </View>
+                  )}
+                  <TextInput
+                    style={[styles.searchInputText, { marginLeft: 0, paddingLeft: 10 }]}
+                    placeholder=""
+                    placeholderTextColor={theme.secondaryText}
+                    value={search}
+                    onChangeText={setSearch}
+                    returnKeyType="search"
+                    onFocus={() => setIsSearchFocused(true)}
+                    onBlur={() => setIsSearchFocused(false)}
+                  />
+                </View>
+                {search.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearch('')}>
+                    <Ionicons name="close-circle" size={20} color={theme.secondaryText} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+
+            {/* PROMO BANNER */}
+            <View style={styles.banner}>
+              <View style={styles.bannerContent}>
+                <Text style={styles.bannerSub}>
+                  Use code <Text style={styles.promoCode}>FIRST50</Text> at checkout. Hurry, offer ends soon!
+                </Text>
+                <Text style={styles.bannerTitle}>Get 20% Off Your First Order!</Text>
+                <Pressable style={styles.bannerBtn}>
+                  <Text style={styles.bannerBtnText}>Order Now</Text>
+                </Pressable>
+              </View>
+              <Ionicons
+                name="fast-food"
+                size={110}
+                color="rgba(255,255,255,0.2)"
+                style={styles.bannerBgIcon}
+              />
+            </View>
+
+            {/* CATEGORIES */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
+              {CATEGORIES.map(c => {
+                const isActive = activeCategory === c.id;
+                return (
+                  <Pressable key={c.id} style={styles.categoryItem} onPress={() => {
+                    if (isActive) {
+                      setActiveCategory('all');
+                      setSearch('');
+                    } else {
+                      setActiveCategory(c.id);
+                      setSearch(c.id === 'all' ? '' : c.name);
+                    }
+                  }}>
+                    <View style={[styles.categoryIcon, isActive ? { backgroundColor: theme.primary } : { backgroundColor: theme.input }]}>
+                      <Text style={{ fontSize: 24 }}>{c.emoji}</Text>
+                    </View>
+                    <Text style={[styles.categoryText, isActive && { color: theme.primary, fontWeight: '700' }]}>{c.name}</Text>
+                  </Pressable>
+                )
+              })}
+            </ScrollView>
+
+            {/* TOP PICKS */}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Top picks on khaja™</Text>
+              <Pressable style={styles.seeAllBtn} onPress={() => {
+                setActiveCategory('all');
+                setSearch('');
+              }}>
+                <Text style={styles.seeAllText}>See all</Text>
+              </Pressable>
+            </View>
+
+            {visibleItems.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="search-outline" size={40} color={theme.secondaryText} />
+                <Text style={styles.emptyText}>No items found matching your search.</Text>
+              </View>
+            ) : (
+              <View style={{ gap: 20 }}>
+                {Array.from({ length: Math.ceil(visibleItems.length / 5) }).map((_, rowIndex) => (
+                  <ScrollView
+                    key={`row-${rowIndex}`}
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ gap: 16, paddingRight: 20 }}
+                  >
+                    {visibleItems.slice(rowIndex * 5, rowIndex * 5 + 5).map((it) => (
+                      <Pressable
+                        key={it.id}
+                        onPress={() => openBuy(it)}
+                        style={styles.pickCard}
+                      >
+                        <View style={styles.pickImageContainer}>
+                          <Image
+                            source={{ uri: it.imageUrl || 'https://via.placeholder.com/300' }}
+                            style={[styles.pickImage, it.outOfStock && { opacity: 0.5 }]}
+                          />
+                          {it.outOfStock && (
+                            <View style={styles.userOutOfStockBanner}>
+                              <Text style={styles.userOutOfStockText}>OUT OF STOCK</Text>
+                            </View>
+                          )}
+                          <View style={styles.heartBtn}>
+                            <Ionicons name="heart-outline" size={16} color={theme.primary} />
+                          </View>
+                          {it.dietary && (
+                            <View style={[styles.dietaryIcon, { backgroundColor: it.dietary === 'Veg' ? theme.green : it.dietary === 'Vegan' ? '#00C9A7' : theme.red }]}>
+                              <Text style={{ fontSize: 10 }}>{it.dietary === 'Veg' ? '🟢' : it.dietary === 'Vegan' ? '🌱' : '🔴'}</Text>
+                            </View>
+                          )}
+                          <View style={styles.timeBadge}>
+                            <Ionicons name="time-outline" size={12} color={theme.white} />
+                            <Text style={styles.timeText}>31 min</Text>
+                          </View>
+                        </View>
+                        <View style={styles.pickBody}>
+                          <Text style={styles.pickTitle} numberOfLines={1}>{it.name}</Text>
+                          <View style={styles.pickSubtitleRow}>
+                            <Ionicons name="storefront" size={12} color={theme.primary} />
+                            <Text style={styles.pickKitchen} numberOfLines={1}>{it.kitchenName}</Text>
+                          </View>
+                          <View style={styles.pickRatingRow}>
+                            <Text style={styles.pickRating}>
+                              {it.ratingCount && it.ratingCount > 0 ? ((it.totalRating || 0) / it.ratingCount).toFixed(1) : 'New'}
+                            </Text>
+                            <Ionicons name="star" size={10} color={theme.yellow} />
+                            <Text style={styles.pickReviews}>({it.ratingCount || 0}+)</Text>
+                          </View>
+                          <View style={styles.pickFooterRow}>
+                            <Text style={styles.deliveryFee}>RS 0 Delivery fee upto RS 500</Text>
+                            <View style={styles.priceBtn}>
+                              <Text style={styles.priceText}>Rs. {it.price}</Text>
+                            </View>
+                          </View>
+                        </View>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                ))}
               </View>
             )}
           </View>
+        )}
 
-          <TextInput
-            value={addr}
-            onChangeText={setAddr}
-            placeholder="eg. Itahari-4, College Road"
-            placeholderTextColor={theme.secondaryText}
-            style={styles.input}
-          />
+        {tab === 'active' && (
+          <View style={{ gap: 10 }}>
+            <Text style={styles.sectionTitle}>Active Orders</Text>
+            {activeOrders.length === 0 && (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="basket-outline" size={40} color={theme.gray} />
+                <Text style={styles.emptyText}>You haven't placed any orders recently.</Text>
+              </View>
+            )}
 
-          <View style={styles.row}>
-            <TextInput
-              value={userLoc.lat ?? ''}
-              onChangeText={(t) => setUserLoc((s) => ({ ...s, lat: t }))}
-              placeholder="Lat (optional)"
-              placeholderTextColor={theme.secondaryText}
-              style={[styles.input, { flex: 1, minWidth: 0 }]}
-              keyboardType="numeric"
-            />
-            <TextInput
-              value={userLoc.lng ?? ''}
-              onChangeText={(t) => setUserLoc((s) => ({ ...s, lng: t }))}
-              placeholder="Lng (optional)"
-              placeholderTextColor={theme.secondaryText}
-              style={[styles.input, { flex: 1, minWidth: 0 }]}
-              keyboardType="numeric"
-            />
-          </View>
+            {activeOrders.map((o, idx) => {
+              const canCancel = o.status === "requested" || o.status === "expired_reassign";
+              const canReassign = o.status === "expired_reassign";
 
-          <Button label="Save Address" color={theme.blue} onPress={saveAddress} />
-        </Card>
-
-        {/* SEARCH */}
-        <Card delay={80} style={{ gap: 10 }}>
-          <View style={styles.row}>
-            <TextInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Search items or kitchens"
-              placeholderTextColor={theme.secondaryText}
-              style={[styles.input, { flex: 1 }]}
-            />
-            <Pressable
-              onPress={() => setNearbyOnly((v) => !v)}
-              style={[
-                styles.pill,
-                { backgroundColor: nearbyOnly ? theme.green : theme.gray },
-              ]}
-            >
-              <Text style={styles.pillText}>
-                {nearbyOnly ? 'Nearby' : 'All'}
-              </Text>
-            </Pressable>
-          </View>
-        </Card>
-
-        {/* MENU */}
-        <View style={{ gap: 10 }}>
-          <Text style={styles.sectionTitle}>Menu (Online VIP Kitchens)</Text>
-          {visibleItems.length === 0 && (
-            <Text style={styles.empty}>No items yet.</Text>
-          )}
-
-          <View style={styles.itemGrid}>
-            {visibleItems.map((it) => (
-              <Pressable
-                key={it.id}
-                onPress={() => openBuy(it)}
-                style={styles.itemCard}
-              >
-                <Image
-                  source={{
-                    uri: it.imageUrl || 'https://via.placeholder.com/100',
-                  }}
-                  style={styles.itemImage}
-                />
-                <View style={styles.itemBody}>
-                  <Text style={styles.itemTitle}>{it.name}</Text>
+              return (
+                <Card key={o.id} delay={100 + idx * 40} style={{ gap: 6 }}>
+                  <Text style={styles.itemTitle}>{o.itemName}</Text>
                   <Text style={styles.itemMeta}>
-                    Rs. {it.price} • {it.kitchenName}
+                    {o.kitchenName} • Rs. {o.total}
                   </Text>
-                </View>
-              </Pressable>
-            ))}
-          </View>
-        </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={[styles.statusDot, { backgroundColor: getStatusColor(o.status) }]} />
+                    <Text style={[styles.itemMeta, { color: getStatusColor(o.status), fontWeight: '700' }]}>
+                      {getStatusText(o.status)}
+                    </Text>
+                  </View>
 
-        {/* ORDERS */}
-        <View style={{ gap: 10 }}>
-          <Text style={styles.sectionTitle}>My Orders</Text>
-          {orders.length === 0 && (
-            <Text style={styles.empty}>No orders yet.</Text>
-          )}
-          {orders.map((o, idx) => {
-            const canCancel = o.status === 'requested';
-            const canReassign =
-              o.status === 'accepted' &&
-              o.acceptedAt &&
-              Date.now() - (o.acceptedAt?.toMillis?.() ?? 0) >
-                30 * 60 * 1000;
-            return (
-              <Card
-                key={o.id}
-                delay={100 + idx * 40}
-                style={{ gap: 6 }}
-              >
-                <Text style={styles.itemTitle}>{o.itemName}</Text>
-                <Text style={styles.itemMeta}>
-                  {o.kitchenName} • Rs. {o.total}
-                </Text>
-                <Text style={styles.itemMeta}>
-                  Status: {o.status.replace(/_/g, ' ')}
-                </Text>
-                <View style={styles.row}>
-                  {canCancel && (
-                    <Button
-                      label="Cancel"
-                      color={theme.red}
-                      onPress={() => cancelOrder(o.id, o.status)}
-                    />
+                  <View style={styles.row}>
+                    {canCancel && (
+                      <Button
+                        label="Cancel"
+                        color={theme.red}
+                        onPress={() => cancelOrder(o.id, o.status)}
+                      />
+                    )}
+                    {canReassign && (
+                      <Button
+                        label="Reassign"
+                        color={theme.gray}
+                        onPress={() => reassignOrder(o)}
+                      />
+                    )}
+                  </View>
+                </Card>
+              );
+            })}
+          </View>
+        )}
+
+        {tab === 'history' && (
+          <View style={{ gap: 16 }}>
+            <View style={{ gap: 8 }}>
+              <TextInput
+                style={[styles.input, { paddingHorizontal: 16, height: 44 }]}
+                placeholder="Search history..."
+                placeholderTextColor={theme.secondaryText}
+                value={historySearch}
+                onChangeText={setHistorySearch}
+              />
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                {(['all', 'today', 'month'] as const).map(f => (
+                  <TouchableOpacity
+                    key={f}
+                    style={[styles.filterChip, historyDateFilter === f && styles.filterChipActive]}
+                    onPress={() => setHistoryDateFilter(f)}
+                  >
+                    <Text style={[styles.filterChipText, historyDateFilter === f && styles.filterChipTextActive]}>
+                      {f === 'all' ? 'All Time' : f === 'today' ? 'Today' : 'This Month'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                {(['all', 'delivered', 'rejected'] as const).map(f => (
+                  <TouchableOpacity
+                    key={`status-${f}`}
+                    style={[styles.filterChip, historyStatusFilter === f && styles.filterChipActive]}
+                    onPress={() => setHistoryStatusFilter(f)}
+                  >
+                    <Text style={[styles.filterChipText, historyStatusFilter === f && styles.filterChipTextActive]}>
+                      {f === 'all' ? 'All Status' : f === 'delivered' ? 'Delivered' : 'Canceled/Rejected'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            {(() => {
+              const q = historySearch.toLowerCase();
+              const now = new Date();
+              now.setHours(0, 0, 0, 0);
+
+              const filtered = historyOrdersList.filter(o => {
+                // Search filter
+                if (q && !(o.itemName?.toLowerCase().includes(q) || o.kitchenName?.toLowerCase().includes(q))) return false;
+
+                // Date filter
+                const oDate = o.createdAt ? new Date(o.createdAt?.toMillis?.() ?? 0) : new Date(0);
+                if (historyDateFilter === 'today') {
+                  const oDateStart = new Date(oDate);
+                  oDateStart.setHours(0, 0, 0, 0);
+                  if (oDateStart.getTime() !== now.getTime()) return false;
+                } else if (historyDateFilter === 'month') {
+                  if (oDate.getMonth() !== now.getMonth() || oDate.getFullYear() !== now.getFullYear()) return false;
+                }
+
+                // Status filter
+                if (historyStatusFilter === 'delivered' && o.status !== 'delivered') return false;
+                if (historyStatusFilter === 'rejected' && o.status !== 'rejected' && o.status !== 'canceled') return false;
+
+                return true;
+              });
+
+              if (filtered.length === 0) {
+                return (
+                  <View style={[styles.emptyContainer, { marginTop: 20 }]}>
+                    <Ionicons name="time-outline" size={48} color={theme.secondaryText} />
+                    <Text style={[styles.empty, { backgroundColor: 'transparent', padding: 0 }]}>No history found.</Text>
+                  </View>
+                );
+              }
+
+              return filtered.map((o, idx) => (
+                <View key={o.id} style={styles.miniBill}>
+                  <Text style={styles.billHeader}>RECEIPT</Text>
+                  <Text style={styles.billText}>Order ID: {o.id.slice(-6).toUpperCase()}</Text>
+                  <Text style={styles.billText}>Date: {o.createdAt ? new Date(o.createdAt?.toMillis?.() ?? 0).toLocaleString() : 'N/A'}</Text>
+                  <Text style={styles.billText}>Kitchen: {o.kitchenName}</Text>
+                  <View style={styles.billDivider} />
+
+                  <View style={styles.row}>
+                    <Text style={[styles.billText, { flex: 1 }]}>1x {o.itemName}</Text>
+                    <Text style={styles.billText}>Rs. {o.total}</Text>
+                  </View>
+                  <View style={styles.billDivider} />
+
+                  <View style={[styles.row, { justifyContent: 'space-between', marginTop: 4 }]}>
+                    <Text style={[styles.billText, { fontSize: 16, fontWeight: 'bold' }]}>TOTAL</Text>
+                    <Text style={[styles.billText, { fontSize: 16, fontWeight: 'bold' }]}>Rs. {o.total}</Text>
+                  </View>
+
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, justifyContent: 'center' }}>
+                    <View style={[styles.statusDot, { backgroundColor: getStatusColor(o.status) }]} />
+                    <Text style={[styles.itemMeta, { color: getStatusColor(o.status), fontWeight: '700' }]}>
+                      {getStatusText(o.status)}
+                    </Text>
+                  </View>
+
+                  {o.status === 'delivered' && !o.rating && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        setReviewingOrder(o);
+                        setReviewRating(5);
+                        setReviewComment('');
+                      }}
+                      style={{
+                        marginTop: 12,
+                        backgroundColor: theme.blue,
+                        paddingVertical: 8,
+                        borderRadius: 8,
+                        alignItems: 'center'
+                      }}
+                    >
+                      <Text style={{ color: theme.white, fontWeight: 'bold' }}>Rate this Meal</Text>
+                    </TouchableOpacity>
                   )}
-                  {canReassign && (
-                    <Button
-                      label="Reassign"
-                      color={theme.gray}
-                      onPress={() => reassignOrder(o)}
-                    />
-                  )}
+
+                  {o.rating ? (
+                    <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
+                      <Ionicons name="star" size={16} color={theme.yellow} />
+                      <Text style={{ color: theme.yellow, fontWeight: 'bold' }}>{o.rating} / 5</Text>
+                    </View>
+                  ) : null}
                 </View>
-              </Card>
-            );
-          })}
-        </View>
+              ));
+            })()}
+          </View>
+        )}
       </ScrollView>
 
-      {/* BUY MODAL */}
+      {/* BOTTOM NAVIGATION BAR */}
+      {/* BOTTOM NAVIGATION */}
+      <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <TouchableOpacity style={styles.tabItem} onPress={() => setTab('menu')}>
+          <Ionicons
+            name={tab === 'menu' ? 'fast-food' : 'fast-food-outline'}
+            size={24}
+            color={tab === 'menu' ? theme.primary : theme.secondaryText}
+          />
+          <Text style={[styles.tabLabel, tab === 'menu' && { color: theme.primary }]}>Menu</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.tabItem} onPress={() => setTab('active')}>
+          <View style={{ position: 'relative' }}>
+            <Ionicons
+              name={tab === 'active' ? 'receipt' : 'receipt-outline'}
+              size={24}
+              color={tab === 'active' ? theme.primary : theme.secondaryText}
+            />
+            {activeOrders.length > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{activeOrders.length}</Text>
+              </View>
+            )}
+          </View>
+          <Text style={[styles.tabLabel, tab === 'active' && { color: theme.primary }]}>Orders</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.tabItem} onPress={() => setTab('history')}>
+          <Ionicons
+            name={tab === 'history' ? 'time' : 'time-outline'}
+            size={24}
+            color={tab === 'history' ? theme.primary : theme.secondaryText}
+          />
+          <Text style={[styles.tabLabel, tab === 'history' && { color: theme.primary }]}>History</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.tabItem} onPress={() => setTab('profile')}>
+          <Ionicons
+            name={tab === 'profile' ? 'person' : 'person-outline'}
+            size={24}
+            color={tab === 'profile' ? theme.primary : theme.secondaryText}
+          />
+          <Text style={[styles.tabLabel, tab === 'profile' && { color: theme.primary }]}>Profile</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* FIXED BUY MODAL */}
       <Modal visible={show} transparent animationType="fade" onRequestClose={closeBuy}>
+
+
+
         <View style={styles.modalBackdrop}>
           <Animated.View style={styles.modalCard}>
             <Text style={styles.modalTitle}>{sel?.name}</Text>
             <Text style={styles.modalMeta}>Kitchen: {sel?.kitchenName}</Text>
+
 
             <View
               style={[
@@ -757,9 +1759,29 @@ export default function UserHome() {
                   { backgroundColor: cod ? theme.green : theme.gray },
                 ]}
               >
+
                 <Text style={styles.pillText}>{cod ? 'ON' : 'OFF'}</Text>
               </Pressable>
             </View>
+            {/* REMARKS INPUT */}
+            <Text style={styles.modalLabel}>Remarks / Special Instructions</Text>
+
+            <TextInput
+              value={remarks}
+              onChangeText={setRemarks}
+              placeholder="e.g. extra cheese, no onion, spicy, etc."
+              placeholderTextColor={theme.secondaryText}
+              style={[
+                styles.input,
+                {
+                  height: 80,
+                  textAlignVertical: 'top',
+                  marginBottom: 10,
+                },
+              ]}
+              multiline
+            />
+
 
             <Button
               label="Place order"
@@ -770,35 +1792,198 @@ export default function UserHome() {
           </Animated.View>
         </View>
       </Modal>
-    </>
+
+      {/* REJECTION FEEDBACK MODAL */}
+      <Modal visible={!!activeRejection} transparent animationType="fade" onRequestClose={dismissRejection}>
+        <View style={styles.modalBackdrop}>
+          <Animated.View style={[styles.modalCard, { alignItems: 'center' }]}>
+            <View style={styles.crossCircle}>
+              <Ionicons name="close" size={48} color={theme.white} />
+            </View>
+            <Text style={[styles.modalTitle, { fontSize: 22, color: theme.red, marginTop: 10 }]}>Order Rejected</Text>
+            <Text style={[styles.modalMeta, { textAlign: 'center', fontSize: 16 }]}>
+              {activeRejection?.kitchenName} rejected your order for {activeRejection?.itemName}.
+            </Text>
+            {activeRejection?.rejectionReason ? (
+              <View style={{ backgroundColor: 'rgba(255, 59, 48, 0.1)', padding: 12, borderRadius: 8, marginTop: 8, width: '100%' }}>
+                <Text style={{ color: theme.white, fontStyle: 'italic', textAlign: 'center' }}>
+                  "{activeRejection.rejectionReason}"
+                </Text>
+              </View>
+            ) : null}
+            <Button label="Okay" color={theme.gray} onPress={dismissRejection} style={{ width: '100%', marginTop: 10 }} />
+          </Animated.View>
+        </View>
+      </Modal>
+
+      {/* KITCHEN REPORT WARNING MODAL */}
+      <Modal visible={!!activeReportWarning} transparent animationType="fade" onRequestClose={dismissReportWarning}>
+        <View style={styles.modalBackdrop}>
+          <Animated.View style={[styles.modalCard, { alignItems: 'center' }]}>
+            <View style={{ backgroundColor: 'rgba(255, 204, 0, 0.15)', padding: 16, borderRadius: 50 }}>
+              <Ionicons name="warning" size={48} color={theme.yellow || '#FFCC00'} />
+            </View>
+            <Text style={[styles.modalMeta, { textAlign: 'center', fontSize: 13, color: theme.red, marginTop: 10 }]}>
+              Note: Multiple delivery reports may result in account suspension.
+            </Text>
+            <ScrollView style={{ maxHeight: 300, width: '100%' }} contentContainerStyle={{ alignItems: 'center' }}>
+              <Text style={[styles.modalMeta, { textAlign: 'center', fontSize: 16 }]}>
+                {activeReportWarning?.kitchenName} reported an issue delivering your order for {activeReportWarning?.itemName}.
+              </Text>
+              {activeReportWarning?.cancellationReason ? (
+                <View style={{ backgroundColor: 'rgba(255, 204, 0, 0.1)', padding: 12, borderRadius: 8, marginTop: 8, width: '100%' }}>
+                  <Text style={{ color: theme.white, fontStyle: 'italic', textAlign: 'center' }}>
+                    Reason: "{activeReportWarning.cancellationReason}"
+                  </Text>
+                </View>
+              ) : null}
+            </ScrollView>
+            <Button label="I understand" color={theme.gray} onPress={dismissReportWarning} style={{ width: '100%', marginTop: 10 }} />
+          </Animated.View>
+        </View>
+      </Modal>
+
+      {/* DELIVERY FEEDBACK MODAL */}
+      <Modal visible={!!activeDelivery} transparent animationType="fade" onRequestClose={closeDeliveryModal}>
+        <BlurView intensity={30} tint="dark" style={styles.modalBackdrop}>
+          <Animated.View style={[styles.modalCard, { alignItems: 'center' }]}>
+            {deliveryFeedback === 'prompt' && (
+              <>
+                <View style={styles.promptCircle}>
+                  <Ionicons name="fast-food" size={48} color={theme.white} />
+                </View>
+                <Text style={[styles.modalTitle, { fontSize: 20, textAlign: 'center', marginTop: 10 }]}>Food Delivered?</Text>
+                <Text style={[styles.modalMeta, { textAlign: 'center', marginBottom: 10 }]}>
+                  {activeDelivery?.kitchenName} marked your order for {activeDelivery?.itemName} as delivered. Did you receive your food?
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+                  <Button label="No" color={theme.red} onPress={deliverNo} style={{ flex: 1 }} />
+                  <Button label="Yes" color={theme.green} onPress={deliverYes} style={{ flex: 1 }} />
+                </View>
+              </>
+            )}
+
+            {deliveryFeedback === 'yes' && (
+              <CelebrationSuccess>
+                <AnimatedCheckmark />
+                <Text style={[styles.modalTitle, { fontSize: 24, color: theme.green, marginTop: 15, textAlign: 'center' }]}>🎉 Delivered Successfully! 🎉</Text>
+                <Text style={[styles.modalMeta, { textAlign: 'center', marginTop: 5 }]}>Your order is complete. Enjoy your food!</Text>
+              </CelebrationSuccess>
+            )}
+
+            {deliveryFeedback === 'no' && (
+              <>
+                <View style={styles.warningCircle}>
+                  <Ionicons name="alert-circle" size={48} color={theme.white} />
+                </View>
+                <Text style={[styles.modalTitle, { fontSize: 20, color: theme.red, marginTop: 10 }]}>Report Submitted</Text>
+                <Text style={[styles.modalMeta, { textAlign: 'center' }]}>
+                  We've recorded that you didn't receive your order from {activeDelivery?.kitchenName}.
+                  An email has been sent to our support team and the kitchen to investigate immediately.
+                </Text>
+                <Button label="Close" color={theme.gray} onPress={closeDeliveryModal} style={{ width: '100%', marginTop: 10 }} />
+              </>
+            )}
+          </Animated.View>
+        </BlurView>
+      </Modal>
+
+      {/* REVIEW MODAL */}
+      <Modal visible={!!reviewingOrder} transparent animationType="slide" onRequestClose={() => setReviewingOrder(null)}>
+        <View style={styles.modalBackdrop}>
+          <Animated.View style={[styles.modalCard, { width: '90%' }]}>
+            <Text style={styles.modalTitle}>Rate your meal</Text>
+            <Text style={[styles.modalMeta, { textAlign: 'center' }]}>
+              How was your {reviewingOrder?.itemName} from {reviewingOrder?.kitchenName}?
+            </Text>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 10, marginVertical: 20 }}>
+              {[1, 2, 3, 4, 5].map((s) => (
+                <TouchableOpacity key={s} onPress={() => setReviewRating(s)}>
+                  <Ionicons
+                    name={s <= reviewRating ? "star" : "star-outline"}
+                    size={40}
+                    color={theme.yellow}
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TextInput
+              style={[styles.input, { height: 80, textAlignVertical: 'top', paddingTop: 12 }]}
+              placeholder="What did you think of the food? (Optional)"
+              placeholderTextColor={theme.secondaryText}
+              multiline
+              value={reviewComment}
+              onChangeText={setReviewComment}
+            />
+
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 20 }}>
+              <Button label="Back" color={theme.gray} onPress={() => setReviewingOrder(null)} style={{ flex: 1 }} />
+              <Button
+                label={isSubmittingReview ? "..." : "Submit"}
+                color={theme.green}
+                onPress={submitReview}
+                style={{ flex: 1 }}
+              />
+            </View>
+          </Animated.View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // Global and Structure
   container: {
     padding: theme.pad,
-    gap: 16,
+    gap: 24,
     backgroundColor: theme.pageBg,
-    paddingBottom: 80,
+    paddingBottom: 40,
+    maxWidth: 1000,
+    width: '100%',
+    alignSelf: 'center',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 10,
   },
   hi: {
+    color: theme.white,
     fontSize: 24,
     fontWeight: '800',
-    color: theme.text,
   },
   settingsBtn: {
-    padding: 8,
-    borderRadius: 999,
-    backgroundColor: theme.gray,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.card,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   row: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
+  },
+  emptyContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.card,
+    borderRadius: theme.radius,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: theme.gray,
+    borderStyle: 'dashed',
+  },
+  emptyText: {
+    color: theme.secondaryText,
+    fontSize: 14,
+    textAlign: 'center',
   },
   button: {
     borderRadius: 8,
@@ -846,12 +2031,14 @@ const styles = StyleSheet.create({
   itemGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 16,
+    justifyContent: 'flex-start',
   },
   itemCard: {
-    width: 150,
+    width: Platform.OS === 'web' ? 230 : '47%',
+    minWidth: 150,
     backgroundColor: theme.card,
-    borderRadius: 10,
+    borderRadius: 12,
     overflow: 'hidden',
     shadowColor: theme.shadow.color,
     shadowOpacity: 0.2,
@@ -876,6 +2063,12 @@ const styles = StyleSheet.create({
     color: theme.secondaryText,
     fontSize: 12,
   },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.65)',
@@ -889,6 +2082,7 @@ const styles = StyleSheet.create({
     padding: theme.pad,
     width: '100%',
     maxWidth: 420,
+    maxHeight: '90%',
     gap: 12,
     shadowColor: theme.shadow.color,
     shadowOpacity: theme.shadow.opacity,
@@ -925,5 +2119,428 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '700',
     fontSize: 16,
+  },
+  crossCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: theme.red,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+  },
+  tickCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: theme.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+  },
+  promptCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: theme.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+  },
+  warningCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: theme.gray,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+  },
+  bottomNav: {
+    flexDirection: 'row',
+    backgroundColor: theme.card,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: theme.gray,
+    position: 'absolute',
+    bottom: 0,
+    width: '100%',
+    zIndex: 100,
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabLabel: {
+    color: theme.secondaryText,
+    fontSize: 11,
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#FF3B30',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  miniBill: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 16,
+    marginVertical: 6,
+  },
+  billHeader: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    color: '#000',
+    marginBottom: 8,
+  },
+  billDivider: {
+    height: 1,
+    borderWidth: 0,
+    borderTopWidth: 1,
+    borderColor: '#000',
+    borderStyle: 'dashed',
+    marginVertical: 8,
+  },
+  billText: {
+    color: '#000',
+    fontSize: 14,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: theme.card,
+    borderWidth: 1,
+    borderColor: theme.gray,
+  },
+  filterChipActive: {
+    backgroundColor: theme.blue,
+    borderColor: theme.blue,
+  },
+  filterChipText: {
+    color: theme.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  filterChipTextActive: {
+    color: theme.white,
+  },
+  userOutOfStockBanner: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userOutOfStockText: {
+    color: theme.white,
+    fontWeight: '900',
+    fontSize: 14,
+    letterSpacing: 1,
+    borderWidth: 2,
+    borderColor: theme.white,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    transform: [{ rotate: '-15deg' }]
+  },
+  dietaryIcon: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  mapBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.gray,
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 8,
+    marginTop: 4,
+  },
+  mapBtnText: {
+    color: theme.white,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  // NEW MENU STYLES matching screenshot
+  bellBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.gray,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 8,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: theme.primary,
+    borderWidth: 2,
+    borderColor: theme.gray,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  searchBar: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.card,
+    borderRadius: 25,
+    paddingHorizontal: 16,
+    height: 50,
+    shadowColor: theme.shadow.color,
+    shadowOpacity: theme.shadow.opacity,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  searchInputText: {
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 15,
+    color: theme.text,
+  },
+  micBtn: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(255, 92, 42, 0.15)', // Dark mode compliant orange tint
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: theme.shadow.color,
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  banner: {
+    backgroundColor: theme.primary,
+    borderRadius: 20,
+    padding: 20,
+    overflow: 'hidden',
+    flexDirection: 'row',
+    marginTop: 10,
+  },
+  bannerContent: {
+    flex: 1,
+    zIndex: 2,
+  },
+  bannerSub: {
+    color: theme.white,
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  promoCode: {
+    fontWeight: '800',
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    paddingHorizontal: 6,
+    borderRadius: 6,
+    color: theme.primary,
+    overflow: 'hidden',
+  },
+  bannerTitle: {
+    color: theme.white,
+    fontSize: 24,
+    fontWeight: '800',
+    width: '70%',
+    marginBottom: 16,
+  },
+  bannerBtn: {
+    backgroundColor: theme.dark,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+  },
+  bannerBtnText: {
+    color: theme.white,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  bannerBgIcon: {
+    position: 'absolute',
+    right: -20,
+    bottom: -20,
+    transform: [{ rotate: '-15deg' }]
+  },
+  categoryScroll: {
+    paddingVertical: 8,
+    gap: 16,
+    paddingRight: 20,
+  },
+  categoryItem: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  categoryIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  categoryText: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  topPicksGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingBottom: 10,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  seeAllBtn: {
+    backgroundColor: theme.yellow,
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+  },
+  seeAllText: {
+    color: theme.dark,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  pickCard: {
+    width: 240,
+    backgroundColor: theme.card,
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: theme.shadow.color,
+    shadowOpacity: theme.shadow.opacity,
+    shadowRadius: 15,
+    elevation: 4,
+  },
+  pickImageContainer: {
+    height: 140,
+    width: '100%',
+    backgroundColor: theme.gray,
+  },
+  pickImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  heartBtn: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeBadge: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  timeText: {
+    color: theme.white,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  pickBody: {
+    padding: 12,
+    gap: 6,
+  },
+  pickTitle: {
+    color: theme.text,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  pickSubtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 4,
+  },
+  pickKitchen: {
+    color: theme.secondaryText,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  pickRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  pickRating: {
+    color: theme.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  pickReviews: {
+    color: theme.secondaryText,
+    fontSize: 12,
+  },
+  pickFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  deliveryFee: {
+    color: theme.primary,
+    fontSize: 11,
+    fontWeight: '600',
+    flex: 1,
+  },
+  priceBtn: {
+    backgroundColor: theme.dark,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+  },
+  priceText: {
+    color: theme.white,
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

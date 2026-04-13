@@ -1,32 +1,60 @@
 // client/src/constants/firebase.ts
 import { getApps, initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-
+import {
+  browserLocalPersistence,
+  GoogleAuthProvider,
+  getAuth,
+  Auth
+} from 'firebase/auth';
+import { getFirestore, initializeFirestore } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBUFvyUvhvnJVBHzkx2K8KjIAppaAR4i3k",
-  authDomain: "bibekkhaja.firebaseapp.com",
-  projectId: "bibekkhaja",
-  storageBucket: "bibekkhaja.firebasestorage.app",
-  messagingSenderId: "639565915655",
-  appId: "1:639565915655:web:e06ad3caa13f3ca063aca2",
-  measurementId: "G-BWQZC7XW43"
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
 };
 
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+let auth: Auth;
 
-// Web popup provider (used only on web)
+if (Platform.OS === 'web') {
+  auth = getAuth(app);
+} else {
+  try {
+    const { initializeAuth, getReactNativePersistence } = require('firebase/auth');
+    auth = initializeAuth(app, {
+      persistence: getReactNativePersistence ? getReactNativePersistence(AsyncStorage) : browserLocalPersistence
+    });
+  } catch (e) {
+    auth = getAuth(app);
+  }
+}
+
+export { auth };
+
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+});
+
+// Web popup provider 
 export const googleProvider = new GoogleAuthProvider();
 
-// Google OAuth client IDs for expo-auth-session 
+
 export const oauthIds = {
-  webClientId:     '639565915655-splkise0bvkgff8rst5kef1512lgotfs.apps.googleusercontent.com',
-  androidClientId: '639565915655-o3rougkeh3dmakfee2d1tr6ut0s9r31g.apps.googleusercontent.com',
-  iosClientId:     '639565915655-2m7vi4ttk8582pqlshmer5u9b7nmsb84.apps.googleusercontent.com' 
+  webClientId: process.env.EXPO_PUBLIC_WEB_CLIENT_ID!,
+  androidClientId: process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID!,
+  iosClientId: process.env.EXPO_PUBLIC_IOS_CLIENT_ID!,
 };
 
+
+
 export default app;
+
+
+

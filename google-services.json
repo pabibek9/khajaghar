@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "639565915655",
+    "project_id": "bibekkhaja",
+    "storage_bucket": "bibekkhaja.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:639565915655:android:4fa9f1cec29d7e1b63aca2",
+        "android_client_info": {
+          "package_name": "com.bibekparajuli.khaja"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "639565915655-o3rougkeh3dmakfee2d1tr6ut0s9r31g.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.bibekparajuli.khaja",
+            "certificate_hash": "9e87ce120e5f2c4ddbe0e99b7f8e0f37210483ba"
+          }
+        },
+        {
+          "client_id": "639565915655-dcbo5fc292ta6vraicrqtg8gqqo7nd5g.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCDu-WLPCyu9Jrb2BI33lfT5NYRtgyG3Bo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "112528135818418086244",
+              "client_type": 3
+            },
+            {
+              "client_id": "639565915655-2m7vi4ttk8582pqlshmer5u9b7nmsb84.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.bibekparajuli.khaja"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
