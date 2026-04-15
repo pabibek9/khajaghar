@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-na
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { auth } from '../src/constants/firebase';
+import { clearSession } from '../src/services/authService';
 
 const theme = {
     bg: '#0A0A0A',
@@ -17,6 +18,7 @@ const theme = {
 export default function UnverifiedScreen() {
     const handleLogout = async () => {
         try {
+            await clearSession();
             await auth.signOut();
             router.replace('/login');
         } catch (error) {

@@ -17,6 +17,7 @@ import {
     Image,
 } from 'react-native';
 import { auth, db } from '../src/constants/firebase';
+import { clearSession } from '../src/services/authService';
 
 const theme = {
     pageBg: '#0A0A0A',
@@ -120,6 +121,7 @@ export default function ProfileScreen() {
     };
 
     const handleLogout = async () => {
+        await clearSession();
         await signOut(auth);
         router.replace('/login');
     };

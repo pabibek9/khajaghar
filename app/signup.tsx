@@ -25,6 +25,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { auth, db } from '../src/constants/firebase';
+import { clearSession } from '../src/services/authService';
 
 type Role = 'user' | 'kitchen' | 'rider' | null;
 
@@ -155,6 +156,7 @@ export default function Signup() {
           const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
           uid = cred.user.uid;
         } else if (auth.currentUser?.email !== email.trim()) {
+          await clearSession();
           await signOut(auth);
           const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
           uid = cred.user.uid;
@@ -192,6 +194,7 @@ export default function Signup() {
 
         showSuccessModal();
         setTimeout(async () => {
+          await clearSession();
           await signOut(auth);
           router.replace('/login');
         }, 3000);

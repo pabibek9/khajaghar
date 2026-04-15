@@ -30,6 +30,8 @@ import {
   Pressable,
 } from 'react-native';
 import { auth, db, googleProvider, oauthIds } from '../src/constants/firebase';
+import { useNetworkStatus } from '../src/hooks/useNetworkStatus';
+import { saveSession, type UserRole } from '../src/services/authService';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -54,6 +56,10 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
+  // ── Offline detection ────────────────────────────────────────────────────
+  const isOffline = useNetworkStatus();
+  // ────────────────────────────────────────────────────────────────────────
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const passwordInputRef = useRef<TextInput>(null);
@@ -71,14 +77,14 @@ export default function Login() {
       redirectUri,
     });
 
-  const afterLogin = useCallback(async (uid: string, email: string) => {
+  const afterLogin = useCallback(async (uid: string, emailAddr: string) => {
     const ref = doc(db, 'users', uid);
     const snap = await getDoc(ref);
     const currentUser = auth.currentUser;
 
     if (!snap.exists()) {
       await setDoc(ref, {
-        email,
+        email: emailAddr,
         role: null,
         vip: false,
         isOpen: false,
@@ -105,6 +111,17 @@ export default function Login() {
     }
 
     if (!d?.role) { router.replace('/role-select'); return; }
+
+    // ── Persist session so future offline launches can route correctly ─────
+    if (currentUser) {
+      try {
+        await saveSession(currentUser, d.role as UserRole);
+      } catch (e) {
+        console.warn('[Login] Failed to save session:', e);
+      }
+    }
+    // ───────────────────────────────────────────────────────────────────────
+
     if (d.role === 'kitchen') { router.replace('/kitchen'); return; }
     if (d.role === 'admin') { router.replace('/admin'); return; }
     if (d.role === 'rider') { router.replace('/rider'); return; }
@@ -146,6 +163,10 @@ export default function Login() {
   }, [response, afterLogin]);
 
   const handleLogin = async () => {
+    if (isOffline) {
+      Alert.alert('No Internet', 'You are offline. Please reconnect to sign in.');
+      return;
+    }
     if (!email || !password) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
@@ -173,7 +194,7 @@ export default function Login() {
   };
 
   const isExpoGo = Constants.appOwnership === 'expo';
-  const canLogin = email.trim().length > 0 && password.length > 0;
+  const canLogin = email.trim().length > 0 && password.length > 0 && !isOffline;
 
   return (
     <KeyboardAvoidingView
@@ -181,6 +202,14 @@ export default function Login() {
       style={{ flex: 1, backgroundColor: theme.bg }}
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+
+        {/* Offline notice on login screen */}
+        {isOffline && (
+          <View style={styles.offlineNotice}>
+            <Ionicons name="wifi-outline" size={16} color="#fff" />
+            <Text style={styles.offlineNoticeText}>You are offline. Sign in is unavailable.</Text>
+          </View>
+        )}
 
         {/* Logo / Brand */}
         <View style={styles.brandSection}>
@@ -299,6 +328,17 @@ export default function Login() {
 
 const styles = StyleSheet.create({
   container: { flexGrow: 1, paddingHorizontal: 24, paddingVertical: 40, justifyContent: 'center' },
+
+  // Offline notice
+  offlineNotice: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#c0392b',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 16,
+  },
+  offlineNoticeText: { color: '#fff', fontSize: 13, fontWeight: '600', flex: 1 },
 
   // Brand
   brandSection: { alignItems: 'center', marginBottom: 36 },

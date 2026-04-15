@@ -5,6 +5,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { auth, db } from '../src/constants/firebase';
+import { clearSession } from '../src/services/authService';
 
 const theme = {
     bg: '#000000',
@@ -57,7 +58,8 @@ export default function Banned() {
         }
     };
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
+        await clearSession();
         signOut(auth).then(() => router.replace('/login'));
     };
 

@@ -1,5 +1,3 @@
-// client/app/kitchen.tsx
-
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -23,6 +21,10 @@ import * as Location from 'expo-location';
 import { googleProvider } from '../src/constants/firebase';
 import { useNotifications } from '../src/components/NotificationProvider';
 import NotificationBell from '../src/components/NotificationBell';
+import { clearSession } from '../src/services/authService';
+import EmptyState from '../src/components/EmptyState';
+import ThemedLoader, { QUOTES } from '../src/components/ThemedLoader';
+import { usePullToRefresh } from '../src/hooks/usePullToRefresh';
 import {
   Alert,
   Animated,
@@ -588,6 +590,13 @@ export default function Kitchen() {
 
   const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  
+  const ptr = usePullToRefresh({
+    quotes: QUOTES.kitchenRefresh,
+    onRefresh: async () => {
+      await new Promise(r => setTimeout(r, 400));
+    }
+  });
 
   const [rejectingOrder, setRejectingOrder] = useState<Order | null>(null);
   const [rejectReason, setRejectReason] = useState('');
@@ -1079,6 +1088,7 @@ export default function Kitchen() {
       unsubAuthRef.current();
       unsubAuthRef.current = null;
     }
+    await clearSession();
     await signOut(auth);
     router.replace('/login');
   };
@@ -1120,7 +1130,12 @@ export default function Kitchen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.pageBg }}>
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        onScroll={ptr.handleScroll}
+        scrollEventThrottle={ptr.scrollEventThrottle}
+        refreshControl={ptr.refreshControl}
+      >
         {/* Header */}
         <Card style={{ gap: 10 }}>
           <View style={styles.headerRow}>
@@ -1278,12 +1293,9 @@ export default function Kitchen() {
           {tab === 'requests' && (
             <>
               <Text style={styles.sectionTitle}>Incoming Requests</Text>
-              {requests.length === 0 && (
-                <View style={styles.emptyContainer}>
-                  <Ionicons name="notifications-off-outline" size={40} color={theme.gray} />
-                  <Text style={styles.emptyText}>No new requests at the moment.</Text>
-                </View>
-              )}
+              {requests.length === 0 ? (
+                <EmptyState variant="kitchen-clear" />
+              ) : null}
               {requests.map((o) => (
                 <OrderCard
                   key={o.id}
@@ -1305,12 +1317,9 @@ export default function Kitchen() {
           {tab === 'active' && (
             <>
               <Text style={styles.sectionTitle}>Active Orders</Text>
-              {active.length === 0 && (
-                <View style={styles.emptyContainer}>
-                  <Ionicons name="time-outline" size={40} color={theme.gray} />
-                  <Text style={styles.emptyText}>No active orders to prepare.</Text>
-                </View>
-              )}
+              {active.length === 0 ? (
+                <EmptyState variant="kitchen-clear" />
+              ) : null}
               {active.map((o) => (
                 <OrderCard
                   key={o.id}
@@ -1332,12 +1341,9 @@ export default function Kitchen() {
           {tab === 'defects' && (
             <>
               <Text style={styles.sectionTitle}>Cancellation & Returns</Text>
-              {defects.length === 0 && (
-                <View style={styles.emptyContainer}>
-                  <Ionicons name="alert-circle-outline" size={40} color={theme.gray} />
-                  <Text style={styles.emptyText}>No rider issues or pending returns.</Text>
-                </View>
-              )}
+              {defects.length === 0 ? (
+                <EmptyState variant="kitchen-clear" />
+              ) : null}
               {defects.map((o) => (
                 <OrderCard
                   key={o.id}

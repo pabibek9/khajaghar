@@ -13,14 +13,16 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
   Easing,
+  FlatList,
   Image,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -45,7 +47,13 @@ import * as Location from 'expo-location';
 import { useNotifications } from '../src/components/NotificationProvider';
 import NotificationBell from '../src/components/NotificationBell';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
+import { useNetworkStatus } from '../src/hooks/useNetworkStatus';
+import { clearSession } from '../src/services/authService';
+import { placeOrder as placeOrderSafe, type PlaceOrderPayload } from '../src/services/orderService';
+import SkeletonLoader from '../src/components/SkeletonLoader';
+import ThemedLoader, { QUOTES } from '../src/components/ThemedLoader';
+import EmptyState from '../src/components/EmptyState';
+import { usePullToRefresh } from '../src/hooks/usePullToRefresh';
 
 
 // Reverted to dark theme while keeping the primary accent for new UI elements
@@ -75,11 +83,19 @@ const theme = {
 
 const CATEGORIES = [
   { id: 'all', name: 'All', emoji: '🍴' },
+  { id: 'veg', name: 'Veg', emoji: '🟢' },
+  { id: 'non-veg', name: 'Non-veg', emoji: '🔴' },
+  { id: 'vegan', name: 'Vegan', emoji: '🌱' },
+];
+
+const FOOD_TYPES = [
   { id: 'burger', name: 'Burger', emoji: '🍔' },
   { id: 'pizza', name: 'Pizza', emoji: '🍕' },
-  { id: 'salad', name: 'Salad', emoji: '🥗' },
-  { id: 'sushi', name: 'Sushi', emoji: '🍣' },
-  { id: 'taco', name: 'Taco', emoji: '🌮' },
+  { id: 'momo', name: 'Momo', emoji: '🥟' },
+  { id: 'biryani', name: 'Biryani', emoji: '🍲' },
+  { id: 'noodles', name: 'Noodles', emoji: '🍜' },
+  { id: 'dessert', name: 'Dessert', emoji: '🍰' },
+  { id: 'drinks', name: 'Drinks', emoji: '🥤' },
 ];
 
 
@@ -471,6 +487,95 @@ type Order = {
   updatedAt?: any;
 };
 
+// ─── Stagger animation helper ────────────────────────────────────────────────
+function useStaggerFadeIn(index: number) {
+  const delay = Math.min(index * 80, 400);
+  const a = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(a, {
+      toValue: 1,
+      duration: 320,
+      delay,
+      useNativeDriver: true,
+      easing: Easing.out(Easing.cubic),
+    }).start();
+  }, [a, delay]);
+  const style = {
+    opacity: a,
+    transform: [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
+  };
+  return style;
+}
+
+// ─── Staggered Pick Card (memoized) ──────────────────────────────────────────
+const StaggeredPickCard = React.memo(function StaggeredPickCard({
+  it,
+  index,
+  onPress,
+}: {
+  it: MenuItem;
+  index: number;
+  onPress: (item: MenuItem) => void;
+}) {
+  const staggerStyle = useStaggerFadeIn(index);
+  return (
+    <Animated.View style={staggerStyle}>
+      <Pressable onPress={() => onPress(it)} style={styles.pickCard}>
+        <View style={styles.pickImageContainer}>
+          <Image
+            source={{ uri: it.imageUrl || 'https://via.placeholder.com/300' }}
+            style={[styles.pickImage, it.outOfStock && { opacity: 0.5 }]}
+          />
+          {it.outOfStock && (
+            <View style={styles.userOutOfStockBanner}>
+              <Text style={styles.userOutOfStockText}>OUT OF STOCK</Text>
+            </View>
+          )}
+          <View style={styles.heartBtn}>
+            <Ionicons name="heart-outline" size={16} color={theme.primary} />
+          </View>
+          {it.dietary && (
+            <View style={[styles.dietaryIcon, {
+              backgroundColor: it.dietary === 'Veg' ? theme.green
+                : it.dietary === 'Vegan' ? '#00C9A7' : theme.red
+            }]}>
+              <Text style={{ fontSize: 10 }}>
+                {it.dietary === 'Veg' ? '🟢' : it.dietary === 'Vegan' ? '🌱' : '🔴'}
+              </Text>
+            </View>
+          )}
+          <View style={styles.timeBadge}>
+            <Ionicons name="time-outline" size={12} color={theme.white} />
+            <Text style={styles.timeText}>31 min</Text>
+          </View>
+        </View>
+        <View style={styles.pickBody}>
+          <Text style={styles.pickTitle} numberOfLines={1}>{it.name}</Text>
+          <View style={styles.pickSubtitleRow}>
+            <Ionicons name="storefront" size={12} color={theme.primary} />
+            <Text style={styles.pickKitchen} numberOfLines={1}>{it.kitchenName}</Text>
+          </View>
+          <View style={styles.pickRatingRow}>
+            <Text style={styles.pickRating}>
+              {it.ratingCount && it.ratingCount > 0
+                ? ((it.totalRating || 0) / it.ratingCount).toFixed(1)
+                : 'New'}
+            </Text>
+            <Ionicons name="star" size={10} color={theme.yellow} />
+            <Text style={styles.pickReviews}>({it.ratingCount || 0}+)</Text>
+          </View>
+          <View style={styles.pickFooterRow}>
+            <Text style={styles.deliveryFee}>RS 0 Delivery fee upto RS 500</Text>
+            <View style={styles.priceBtn}>
+              <Text style={styles.priceText}>Rs. {it.price}</Text>
+            </View>
+          </View>
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+});
+
 export default function UserHome() {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = Dimensions.get('window');
@@ -495,9 +600,12 @@ export default function UserHome() {
   const [qty, setQty] = useState(1);
   const [cod, setCOD] = useState(true);
   const [savedLocation, setSavedLocation] = useState(false);
+  // Loading states
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   const [tab, setTab] = useState<'menu' | 'active' | 'history' | 'profile'>('menu');
   const [activeCategory, setActiveCategory] = useState<string>('all');
+  const [activeFoodType, setActiveFoodType] = useState<string>('');
   const [historySearch, setHistorySearch] = useState('');
   const [historyDateFilter, setHistoryDateFilter] = useState<'all' | 'today' | 'month'>('today');
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'delivered' | 'rejected'>('all');
@@ -521,32 +629,51 @@ export default function UserHome() {
   // --- Search Placeholder Animation ---
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [searchPlaceholderIndex, setSearchPlaceholderIndex] = useState(0);
-  const searchPlaceholderOpacity = useRef(new Animated.Value(1)).current;
+  const searchPlaceholderAnim = useRef(new Animated.Value(0)).current; // 0 to 1
 
-  const searchTerms = useMemo(() => {
-    // Array.from(new Set(...)) to ensure unique item names if multiple kitchens have "Momo"
-    const uniqueNames = Array.from(new Set(items.map(i => i.name).filter(Boolean)));
-    const base = uniqueNames.slice(0, 10);
-    return base.length > 0 ? base : ['Momo', 'Burger', 'Pizza', 'Biryani'];
-  }, [items]);
+  const SEARCH_TERMS = [
+    'Momo', 'C-Momo', 'Cheeseburger', 'Pepperoni Pizza', 'Chicken Biryani',
+    'Buffalo Wings', 'Veg Chowmein', 'Paneer Butter Masala', 'Thukpa',
+    'Mutton Sekuwa', 'Keema Noodles', 'Crispy Jalebi', 'Refreshing Lassi'
+  ];
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      Animated.timing(searchPlaceholderOpacity, {
-        toValue: 0,
-        duration: 300,
+    const startAnimation = () => {
+      // Fade out and slide up
+      Animated.timing(searchPlaceholderAnim, {
+        toValue: 1,
+        duration: 400,
         useNativeDriver: true,
+        easing: Easing.inOut(Easing.ease),
       }).start(() => {
-        setSearchPlaceholderIndex((prev) => (prev + 1) % searchTerms.length);
-        Animated.timing(searchPlaceholderOpacity, {
-          toValue: 1,
-          duration: 300,
+        setSearchPlaceholderIndex((prev) => (prev + 1) % SEARCH_TERMS.length);
+        // Reset to bottom/transparent
+        searchPlaceholderAnim.setValue(-1);
+        // Fade in and slide up to center
+        Animated.timing(searchPlaceholderAnim, {
+          toValue: 0,
+          duration: 400,
           useNativeDriver: true,
+          easing: Easing.out(Easing.back(1)),
         }).start();
       });
-    }, 2500);
+    };
+
+    const interval = setInterval(startAnimation, 3000);
     return () => clearInterval(interval);
-  }, [searchTerms]);
+  }, []);
+
+  const placeholderOpacity = searchPlaceholderAnim.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: [0, 1, 0],
+  });
+
+  const placeholderTranslateY = searchPlaceholderAnim.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: [10, 0, -10],
+  });
+
+
   // -------------------------------------
 
   const setupMobileLoginPassword = async () => {
@@ -564,12 +691,15 @@ export default function UserHome() {
     const isGoogleUser = user.providerData.some(p => p.providerId === GoogleAuthProvider.PROVIDER_ID);
 
     try {
-      if (isGoogleUser && Platform.OS === 'web') {
+      if (isGoogleUser) {
         Alert.alert(
           "Security Check",
-          "For your security, you must sign in with Google one more time to set a new password. Click OK to proceed."
+          "For your security, you may need to re-authenticate. On web, approve the sign-in popup. On mobile, you may need to sign in again if password update fails."
         );
-        await signInWithPopup(auth, googleProvider);
+        // signInWithPopup is web-only, skip on native platforms
+        if (Platform.OS === 'web') {
+          await signInWithPopup(auth, googleProvider);
+        }
       }
 
       await updatePassword(user, newMobilePassword);
@@ -737,12 +867,21 @@ export default function UserHome() {
         where('vip', '==', true),
         where('isOpen', '==', true),
       );
+      let firstKitchenLoad = true;
       const unsubK = onSnapshot(kq, (snap) => {
         unsubItems.current.forEach((fn) => fn());
         unsubItems.current = [];
         const kitchens: KitchenProfile[] = [];
         snap.forEach((k) => kitchens.push({ id: k.id, ...(k.data() as any) }));
         setItems((prev) => prev.filter((it) => kitchens.some((k) => k.id === it.kitchenId)));
+
+        // If no kitchens, end initial load immediately
+        if (kitchens.length === 0 && firstKitchenLoad) {
+          firstKitchenLoad = false;
+          setIsInitialLoading(false);
+        }
+
+        let pendingKitchens = kitchens.length;
 
         kitchens.forEach((k) => {
           const iq = query(
@@ -770,6 +909,11 @@ export default function UserHome() {
               const others = prev.filter((x) => x.kitchenId !== k.id);
               return [...others, ...fresh];
             });
+            // Mark initial load done after first kitchen's items arrive
+            if (firstKitchenLoad) {
+              firstKitchenLoad = false;
+              setIsInitialLoading(false);
+            }
           });
           unsubItems.current.push(ufn);
         });
@@ -883,14 +1027,31 @@ export default function UserHome() {
   const visibleItems = useMemo(() => {
     const q = search.trim().toLowerCase();
     const filtered = items.filter((it) => {
-      if (
-        q &&
-        !(
-          it.name.toLowerCase().includes(q) ||
-          it.kitchenName.toLowerCase().includes(q)
-        )
-      )
-        return false;
+      // 1. Dietary filter (activeCategory)
+      if (activeCategory && activeCategory !== 'all') {
+        const itemDietary = it.dietary?.toLowerCase() || '';
+        const targetCategory = activeCategory.toLowerCase();
+
+        if (targetCategory === 'veg') {
+          // Both Veg and Vegan count as Vegetarian
+          if (itemDietary !== 'veg' && itemDietary !== 'vegan') return false;
+        } else if (targetCategory === 'non-veg') {
+          if (itemDietary !== 'non-veg') return false;
+        } else if (targetCategory === 'vegan') {
+          if (itemDietary !== 'vegan') return false;
+        }
+      }
+
+      // 2. Search query filter (matches search bar text)
+      if (q) {
+        const matchesName = it.name.toLowerCase().includes(q);
+        const matchesKitchen = it.kitchenName.toLowerCase().includes(q);
+
+        if (!matchesName && !matchesKitchen) {
+          return false;
+        }
+      }
+
       return true;
     });
 
@@ -906,11 +1067,7 @@ export default function UserHome() {
 
   const openBuy = (it: MenuItem) => {
     if (it.outOfStock) {
-      if (Platform.OS === 'web') {
-        window.alert("Sorry, this item is currently out of stock!");
-      } else {
-        Alert.alert("Out of Stock", "Sorry, this item is currently out of stock!");
-      }
+      Alert.alert("Out of Stock", "Sorry, this item is currently out of stock!");
       return;
     }
     setSel(it);
@@ -940,19 +1097,16 @@ export default function UserHome() {
 
     try {
       const kDoc = kitchensCache.get(sel.kitchenId);
-
-
       const authUser = auth.currentUser;
 
-
       let phone = null;
-      let email = authUser?.email || null;
+      let emailAddr = authUser?.email || null;
 
       const uSnap = await getDoc(doc(db, 'users', uid));
       if (uSnap.exists()) {
         const uData = uSnap.data();
         phone = uData?.phone || null;
-        email = uData?.email || email;
+        emailAddr = uData?.email || emailAddr;
       }
 
       const total = await totalFor(sel, qty);
@@ -968,15 +1122,16 @@ export default function UserHome() {
         deliveryFee = Math.max(20, Math.round(2 * km) + 10);
       }
 
-      await addDoc(collection(db, 'orders'), {
+      // ── Offline-guarded order placement ────────────────────────────────────
+      const payload: PlaceOrderPayload = {
         userId: uid,
         userName: name,
-        userEmail: email,
+        userEmail: emailAddr,
         userPhone: phone,
         remarks: remarks || null,
         kitchenId: sel.kitchenId,
-        kitchenName: kDoc?.preferredName || sel.kitchenName,
-        itemId: sel.id,
+        kitchenName: (kDoc?.preferredName ?? sel.kitchenName) as string,
+        itemId: sel.id as string,
         itemName: sel.name,
         itemPrice: sel.price,
         quantity: qty,
@@ -989,11 +1144,19 @@ export default function UserHome() {
         kitchenLng: kDoc?.location?.lng || null,
         deliveryFee,
         total,
-        status: 'requested',
-        userConfirmedReceived: false,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+      };
+
+      const result = await placeOrderSafe(
+        payload,
+        (msg) => Alert.alert('Offline', msg),
+      );
+
+      if (!result) {
+        // placeOrderSafe returned null → device was offline, toast already shown.
+        // Re-open the purchase modal so the user can try again once online.
+        setShow(true);
+      }
+      // ───────────────────────────────────────────────────────────────────────
     } catch (e: any) {
       console.error("Order failed:", e);
       Alert.alert('Error', e?.message || 'Failed to place order');
@@ -1031,6 +1194,9 @@ export default function UserHome() {
       unsubAuthRef.current();
       unsubAuthRef.current = null;
     }
+    // Clear persisted session before signing out so future offline launches
+    // do not mistakenly route to the dashboard without a valid token.
+    await clearSession();
     await signOut(auth);
     router.replace('/login');
   };
@@ -1180,11 +1346,66 @@ export default function UserHome() {
   const activeOrders = orders.filter(o => ['pending', 'accepted', 'waiting_rider', 'assigned_to_rider', 'rider_assigned', 'rider_cancel_requested', 'rider_cancel_approved', 'rider_reported_not_returned', 'kitchen_preparing', 'picked_up', 'on_the_way', 'requested', 'out_for_delivery', 'expired_reassign'].includes(o.status));
   const historyOrdersList = orders.filter(o => ['delivered', 'canceled', 'rejected'].includes(o.status));
 
+  // Pull-to-refresh handler using the new scroll-aware hook
+  const ptr = usePullToRefresh({
+    quotes: QUOTES.home,
+    onRefresh: async () => {
+      // Data refreshes automatically via Firestore listeners,
+      // but we wait a tiny bit to satisfy the spinner
+      await new Promise(r => setTimeout(r, 400));
+    }
+  });
+
+  // Memoized renderItem for FlatList - active orders
+  const renderActiveOrderItem = useCallback(({ item: o, index: idx }: { item: Order; index: number }) => {
+    const canCancel = o.status === 'requested' || o.status === 'expired_reassign';
+    const canReassign = o.status === 'expired_reassign';
+    const staggerStyle = {
+      opacity: 1,
+      transform: [{ translateY: 0 }] as any,
+    };
+    return (
+      <Animated.View style={staggerStyle}>
+        <Card key={o.id} delay={Math.min(idx * 80, 400)} style={{ gap: 6, marginBottom: 10 }}>
+          <Text style={styles.itemTitle}>{o.itemName}</Text>
+          <Text style={styles.itemMeta}>
+            {o.kitchenName} • Rs. {o.total}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={[styles.statusDot, { backgroundColor: getStatusColor(o.status) }]} />
+            <Text style={[styles.itemMeta, { color: getStatusColor(o.status), fontWeight: '700' }]}>
+              {getStatusText(o.status)}
+            </Text>
+          </View>
+          <View style={styles.row}>
+            {canCancel && (
+              <Button
+                label="Cancel"
+                color={theme.red}
+                onPress={() => cancelOrder(o.id, o.status)}
+              />
+            )}
+            {canReassign && (
+              <Button
+                label="Reassign"
+                color={theme.gray}
+                onPress={() => reassignOrder(o)}
+              />
+            )}
+          </View>
+        </Card>
+      </Animated.View>
+    );
+  }, [cancelOrder, reassignOrder]);
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.pageBg }}>
 
       <ScrollView
         style={{ backgroundColor: theme.pageBg }}
+        onScroll={ptr.handleScroll}
+        scrollEventThrottle={ptr.scrollEventThrottle}
+        refreshControl={ptr.refreshControl}
         contentContainerStyle={[
           styles.container,
           {
@@ -1305,7 +1526,7 @@ export default function UserHome() {
 
         {tab === 'menu' && (
           <View style={{ gap: 24, paddingBottom: 20 }}>
-            {/* GREETING SECTION */}
+            {/* GREETING SECTION — always visible */}
             <View style={{ marginBottom: -10, paddingHorizontal: 4 }}>
               <Text style={styles.hi}>Hi {name}!</Text>
               <Text style={{ color: theme.secondaryText, fontSize: 14, marginTop: 4 }}>
@@ -1336,11 +1557,12 @@ export default function UserHome() {
                         style={{
                           color: theme.secondaryText,
                           fontSize: 15,
-                          opacity: searchPlaceholderOpacity,
+                          opacity: placeholderOpacity,
+                          transform: [{ translateY: placeholderTranslateY }],
                         }}
                         numberOfLines={1}
                       >
-                        {searchTerms[searchPlaceholderIndex]}
+                        {SEARCH_TERMS[searchPlaceholderIndex]}
                       </Animated.Text>
                       <Text style={{ color: theme.secondaryText, fontSize: 15 }}>
                         "
@@ -1385,45 +1607,73 @@ export default function UserHome() {
               />
             </View>
 
-            {/* CATEGORIES */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
-              {CATEGORIES.map(c => {
-                const isActive = activeCategory === c.id;
-                return (
-                  <Pressable key={c.id} style={styles.categoryItem} onPress={() => {
-                    if (isActive) {
-                      setActiveCategory('all');
-                      setSearch('');
-                    } else {
-                      setActiveCategory(c.id);
-                      setSearch(c.id === 'all' ? '' : c.name);
-                    }
-                  }}>
-                    <View style={[styles.categoryIcon, isActive ? { backgroundColor: theme.primary } : { backgroundColor: theme.input }]}>
-                      <Text style={{ fontSize: 24 }}>{c.emoji}</Text>
-                    </View>
-                    <Text style={[styles.categoryText, isActive && { color: theme.primary, fontWeight: '700' }]}>{c.name}</Text>
-                  </Pressable>
-                )
-              })}
-            </ScrollView>
+            {/* CATEGORIES ROW 1: DIETARY */}
+            <View style={{ gap: 12 }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
+                {CATEGORIES.map(c => {
+                  const isActive = activeCategory === c.id;
+                  return (
+                    <Pressable key={c.id} style={styles.categoryItem} onPress={() => {
+                      if (isActive) {
+                        setActiveCategory('all');
+                      } else {
+                        setActiveCategory(c.id);
+                      }
+                    }}>
+                      <View style={[styles.categoryIcon, isActive ? { backgroundColor: theme.primary } : { backgroundColor: theme.input }]}>
+                        <Text style={{ fontSize: 24 }}>{c.emoji}</Text>
+                      </View>
+                      <Text style={[styles.categoryText, isActive && { color: theme.primary, fontWeight: '700' }]}>{c.name}</Text>
+                    </Pressable>
+                  )
+                })}
+              </ScrollView>
+
+              {/* CATEGORIES ROW 2: FOOD TYPES */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
+                {FOOD_TYPES.map(c => {
+                  const isActive = activeFoodType === c.id;
+                  return (
+                    <Pressable key={c.id} style={styles.categoryItem} onPress={() => {
+                      if (isActive) {
+                        setActiveFoodType('');
+                        setSearch('');
+                      } else {
+                        setActiveFoodType(c.id);
+                        setSearch(c.name);
+                      }
+                    }}>
+                      <View style={[styles.categoryIcon, isActive ? { backgroundColor: theme.primary } : { backgroundColor: theme.input }, { width: 44, height: 44, borderRadius: 12 }]}>
+                        <Text style={{ fontSize: 20 }}>{c.emoji}</Text>
+                      </View>
+                      <Text style={[styles.categoryText, isActive && { color: theme.primary, fontWeight: '700' }, { fontSize: 11 }]}>{c.name}</Text>
+                    </Pressable>
+                  )
+                })}
+              </ScrollView>
+            </View>
 
             {/* TOP PICKS */}
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionTitle}>Top picks on khaja™</Text>
               <Pressable style={styles.seeAllBtn} onPress={() => {
                 setActiveCategory('all');
+                setActiveFoodType('');
                 setSearch('');
               }}>
                 <Text style={styles.seeAllText}>See all</Text>
               </Pressable>
             </View>
 
-            {visibleItems.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Ionicons name="search-outline" size={40} color={theme.secondaryText} />
-                <Text style={styles.emptyText}>No items found matching your search.</Text>
+            {/* ITEMS AREA: loader → content → empty state */}
+            {isInitialLoading ? (
+              // Momo spinner + skeletons appear here, below the categories
+              <View style={{ paddingTop: 8 }}>
+                <ThemedLoader variant="momo" fullScreen={false} />
+                <SkeletonLoader variant="menuItem" count={4} />
               </View>
+            ) : visibleItems.length === 0 ? (
+              <EmptyState variant="no-restaurants" />
             ) : (
               <View style={{ gap: 20 }}>
                 {Array.from({ length: Math.ceil(visibleItems.length / 5) }).map((_, rowIndex) => (
@@ -1433,57 +1683,17 @@ export default function UserHome() {
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={{ gap: 16, paddingRight: 20 }}
                   >
-                    {visibleItems.slice(rowIndex * 5, rowIndex * 5 + 5).map((it) => (
-                      <Pressable
-                        key={it.id}
-                        onPress={() => openBuy(it)}
-                        style={styles.pickCard}
-                      >
-                        <View style={styles.pickImageContainer}>
-                          <Image
-                            source={{ uri: it.imageUrl || 'https://via.placeholder.com/300' }}
-                            style={[styles.pickImage, it.outOfStock && { opacity: 0.5 }]}
-                          />
-                          {it.outOfStock && (
-                            <View style={styles.userOutOfStockBanner}>
-                              <Text style={styles.userOutOfStockText}>OUT OF STOCK</Text>
-                            </View>
-                          )}
-                          <View style={styles.heartBtn}>
-                            <Ionicons name="heart-outline" size={16} color={theme.primary} />
-                          </View>
-                          {it.dietary && (
-                            <View style={[styles.dietaryIcon, { backgroundColor: it.dietary === 'Veg' ? theme.green : it.dietary === 'Vegan' ? '#00C9A7' : theme.red }]}>
-                              <Text style={{ fontSize: 10 }}>{it.dietary === 'Veg' ? '🟢' : it.dietary === 'Vegan' ? '🌱' : '🔴'}</Text>
-                            </View>
-                          )}
-                          <View style={styles.timeBadge}>
-                            <Ionicons name="time-outline" size={12} color={theme.white} />
-                            <Text style={styles.timeText}>31 min</Text>
-                          </View>
-                        </View>
-                        <View style={styles.pickBody}>
-                          <Text style={styles.pickTitle} numberOfLines={1}>{it.name}</Text>
-                          <View style={styles.pickSubtitleRow}>
-                            <Ionicons name="storefront" size={12} color={theme.primary} />
-                            <Text style={styles.pickKitchen} numberOfLines={1}>{it.kitchenName}</Text>
-                          </View>
-                          <View style={styles.pickRatingRow}>
-                            <Text style={styles.pickRating}>
-                              {it.ratingCount && it.ratingCount > 0 ? ((it.totalRating || 0) / it.ratingCount).toFixed(1) : 'New'}
-                            </Text>
-                            <Ionicons name="star" size={10} color={theme.yellow} />
-                            <Text style={styles.pickReviews}>({it.ratingCount || 0}+)</Text>
-                          </View>
-                          <View style={styles.pickFooterRow}>
-                            <Text style={styles.deliveryFee}>RS 0 Delivery fee upto RS 500</Text>
-                            <View style={styles.priceBtn}>
-                              <Text style={styles.priceText}>Rs. {it.price}</Text>
-                            </View>
-                          </View>
-                        </View>
-                      </Pressable>
-                    ))}
+                    {visibleItems.slice(rowIndex * 5, rowIndex * 5 + 5).map((it, itemIdx) => {
+                      const globalIdx = rowIndex * 5 + itemIdx;
+                      return (
+                        <StaggeredPickCard
+                          key={it.id}
+                          it={it}
+                          index={globalIdx}
+                          onPress={openBuy}
+                        />
+                      );
+                    })}
                   </ScrollView>
                 ))}
               </View>
@@ -1494,49 +1704,19 @@ export default function UserHome() {
         {tab === 'active' && (
           <View style={{ gap: 10 }}>
             <Text style={styles.sectionTitle}>Active Orders</Text>
-            {activeOrders.length === 0 && (
-              <View style={styles.emptyContainer}>
-                <Ionicons name="basket-outline" size={40} color={theme.gray} />
-                <Text style={styles.emptyText}>You haven't placed any orders recently.</Text>
-              </View>
+            {activeOrders.length === 0 ? (
+              <EmptyState variant="empty-cart" />
+            ) : (
+              <FlatList
+                data={activeOrders}
+                keyExtractor={(o) => o.id}
+                renderItem={renderActiveOrderItem}
+                initialNumToRender={5}
+                maxToRenderPerBatch={5}
+                windowSize={5}
+                scrollEnabled={false}
+              />
             )}
-
-            {activeOrders.map((o, idx) => {
-              const canCancel = o.status === "requested" || o.status === "expired_reassign";
-              const canReassign = o.status === "expired_reassign";
-
-              return (
-                <Card key={o.id} delay={100 + idx * 40} style={{ gap: 6 }}>
-                  <Text style={styles.itemTitle}>{o.itemName}</Text>
-                  <Text style={styles.itemMeta}>
-                    {o.kitchenName} • Rs. {o.total}
-                  </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <View style={[styles.statusDot, { backgroundColor: getStatusColor(o.status) }]} />
-                    <Text style={[styles.itemMeta, { color: getStatusColor(o.status), fontWeight: '700' }]}>
-                      {getStatusText(o.status)}
-                    </Text>
-                  </View>
-
-                  <View style={styles.row}>
-                    {canCancel && (
-                      <Button
-                        label="Cancel"
-                        color={theme.red}
-                        onPress={() => cancelOrder(o.id, o.status)}
-                      />
-                    )}
-                    {canReassign && (
-                      <Button
-                        label="Reassign"
-                        color={theme.gray}
-                        onPress={() => reassignOrder(o)}
-                      />
-                    )}
-                  </View>
-                </Card>
-              );
-            })}
           </View>
         )}
 
@@ -1604,10 +1784,7 @@ export default function UserHome() {
 
               if (filtered.length === 0) {
                 return (
-                  <View style={[styles.emptyContainer, { marginTop: 20 }]}>
-                    <Ionicons name="time-outline" size={48} color={theme.secondaryText} />
-                    <Text style={[styles.empty, { backgroundColor: 'transparent', padding: 0 }]}>No history found.</Text>
-                  </View>
+                  <EmptyState variant="no-history" style={{ marginTop: 20 }} />
                 );
               }
 

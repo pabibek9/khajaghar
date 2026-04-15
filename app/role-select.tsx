@@ -11,6 +11,7 @@ import {
 import * as Haptics from 'expo-haptics'; // Premium touch feedback
 import { Ionicons } from '@expo/vector-icons'; // Built-in Expo icons
 import { auth, db } from '../src/constants/firebase';
+import { clearSession } from '../src/services/authService';
 
 // --- BUTTONS PRESERVED EXACTLY ---
 const ActionButton = ({ onPress, children, style, disabled }: any) => {
@@ -83,6 +84,7 @@ export default function RoleSelect() {
     }
     try {
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      await clearSession();
       await signOut(auth);
       router.replace('/login');
     } catch (e) {

@@ -1,9 +1,8 @@
 // app/rider/index.tsx
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator, Alert, Linking, Platform, Pressable,
+    ActivityIndicator, Alert, Animated, Easing, Linking, Platform, Pressable,
     SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View,
-    Animated
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -17,6 +16,10 @@ import * as Location from 'expo-location';
 import { auth, db } from '../../src/constants/firebase';
 import { useNotifications } from '../../src/components/NotificationProvider';
 import NotificationBell from '../../src/components/NotificationBell';
+import { clearSession } from '../../src/services/authService';
+import EmptyState from '../../src/components/EmptyState';
+import ThemedLoader, { QUOTES } from '../../src/components/ThemedLoader';
+import { usePullToRefresh } from '../../src/hooks/usePullToRefresh';
 
 // Safe module-level import — try/catch prevents crash if native module
 // isn't registered (e.g. Expo Go with New Architecture mismatch).
@@ -118,6 +121,37 @@ function StatBox({ icon, label, value, color }: { icon: string; label: string; v
     );
 }
 
+// ─── Stagger entry animation wrapper ─────────────────────────────────────────
+function StaggerCard({ children, delay = 0 }: React.PropsWithChildren<{ delay?: number }>) {
+    const opacity = useRef(new Animated.Value(0)).current;
+    const translateY = useRef(new Animated.Value(20)).current;
+
+    useEffect(() => {
+        Animated.parallel([
+            Animated.timing(opacity, {
+                toValue: 1,
+                duration: 320,
+                delay,
+                useNativeDriver: true,
+                easing: Easing.out(Easing.cubic),
+            }),
+            Animated.timing(translateY, {
+                toValue: 0,
+                duration: 320,
+                delay,
+                useNativeDriver: true,
+                easing: Easing.out(Easing.cubic),
+            }),
+        ]).start();
+    }, [opacity, translateY, delay]);
+
+    return (
+        <Animated.View style={{ opacity, transform: [{ translateY }] }}>
+            {children}
+        </Animated.View>
+    );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Rider() {
     const insets = useSafeAreaInsets();
@@ -140,6 +174,13 @@ export default function Rider() {
     const pulseAnim = useRef(new Animated.Value(0.4)).current;
     const mapRef = useRef<any>(null);
     const unsubAuthRef = useRef<(() => void) | null>(null);
+
+    const ptr = usePullToRefresh({
+        quotes: QUOTES.riderFinding,
+        onRefresh: async () => {
+            await new Promise(r => setTimeout(r, 400));
+        }
+    });
 
     // Auto-center map on rider location or delivery location
     useEffect(() => {
@@ -421,6 +462,7 @@ export default function Rider() {
             unsubAuthRef.current();
             unsubAuthRef.current = null;
         }
+        await clearSession();
         await signOut(auth);
         router.replace('/login');
     };
@@ -507,14 +549,20 @@ export default function Rider() {
     if (!profile) {
         return (
             <SafeAreaView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-                <ActivityIndicator color={theme.primary} size="large" />
+                <ThemedLoader variant="gps" fullScreen={false} />
             </SafeAreaView>
         );
     }
 
     // ── Screens ─────────────────────────────────────────────────────────────────
     const renderDashboard = () => (
-        <ScrollView contentContainerStyle={styles.tabContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+            contentContainerStyle={styles.tabContent}
+            showsVerticalScrollIndicator={false}
+            onScroll={ptr.handleScroll}
+            scrollEventThrottle={ptr.scrollEventThrottle}
+            refreshControl={ptr.refreshControl}
+        >
             <Text style={styles.greeting}>Hello, {profile.name.split(' ')[0]} 👋</Text>
             <StatusBadge status={profile.riderStatus} />
 
@@ -549,72 +597,81 @@ export default function Rider() {
     );
 
     const renderAvailable = () => (
-        <ScrollView contentContainerStyle={styles.tabContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+            contentContainerStyle={styles.tabContent}
+            showsVerticalScrollIndicator={false}
+            onScroll={ptr.handleScroll}
+            scrollEventThrottle={ptr.scrollEventThrottle}
+            refreshControl={ptr.refreshControl}
+        >
             <Text style={styles.sectionHeader}>Available Orders ({available.length})</Text>
             {available.length === 0 && (
-                <View style={styles.emptyBox}>
-                    <Text style={{ fontSize: 40, marginBottom: 10 }}>📭</Text>
-                    <Text style={styles.emptyText}>No available orders right now.</Text>
-                    <Text style={[styles.emptyText, { fontSize: 13, marginTop: 6 }]}>New ones will appear here instantly.</Text>
-                </View>
+                <EmptyState variant="no-available-orders" />
             )}
-            {available.map(order => (
-                <Card key={order.id} style={{ gap: 10 }}>
-                    <View style={styles.rowBetween}>
-                        <Text style={styles.cardTitle}>{order.itemName}</Text>
-                        <Text style={[styles.cardTitle, { color: theme.green }]}>{formatCurrency(order.total)}</Text>
-                    </View>
-                    <View style={{ gap: 4 }}>
-                        <Text style={styles.cardMeta}>👤 {order.userName || 'Customer'}</Text>
-                        <Text style={styles.cardMeta}>📞 {order.userPhone || 'N/A'}</Text>
-                        <Text style={styles.cardMeta}>🏠 {order.userAddress || 'N/A'}</Text>
-                        {order.kitchenName && <Text style={styles.cardMeta}>🍽️ Kitchen: {order.kitchenName}</Text>}
-                        {order.kitchenAddress && <Text style={styles.cardMeta}>📍 Pickup: {order.kitchenAddress}</Text>}
-                    </View>
-                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
-                        {order.kitchenLat && (
-                            <TouchableOpacity style={[styles.iconBtn]} onPress={() => openMaps(order.kitchenLat, order.kitchenLng, 'Kitchen')}>
-                                <Ionicons name="navigate-outline" size={16} color={theme.blue} />
-                                <Text style={[styles.iconBtnText, { color: theme.blue }]}>Kitchen Map</Text>
+            {available.map((order, index) => {
+                const staggerDelay = Math.min(index * 80, 400);
+                return (
+                    <StaggerCard key={order.id} delay={staggerDelay}>
+                        <Card style={{ gap: 10 }}>
+                            <View style={styles.rowBetween}>
+                                <Text style={styles.cardTitle}>{order.itemName}</Text>
+                                <Text style={[styles.cardTitle, { color: theme.green }]}>{formatCurrency(order.total)}</Text>
+                            </View>
+                            <View style={{ gap: 4 }}>
+                                <Text style={styles.cardMeta}>👤 {order.userName || 'Customer'}</Text>
+                                <Text style={styles.cardMeta}>📞 {order.userPhone || 'N/A'}</Text>
+                                <Text style={styles.cardMeta}>🏠 {order.userAddress || 'N/A'}</Text>
+                                {order.kitchenName && <Text style={styles.cardMeta}>🍽️ Kitchen: {order.kitchenName}</Text>}
+                                {order.kitchenAddress && <Text style={styles.cardMeta}>📍 Pickup: {order.kitchenAddress}</Text>}
+                            </View>
+                            <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                                {order.kitchenLat && (
+                                    <TouchableOpacity style={[styles.iconBtn]} onPress={() => openMaps(order.kitchenLat, order.kitchenLng, 'Kitchen')}>
+                                        <Ionicons name="navigate-outline" size={16} color={theme.blue} />
+                                        <Text style={[styles.iconBtnText, { color: theme.blue }]}>Kitchen Map</Text>
+                                    </TouchableOpacity>
+                                )}
+                                <TouchableOpacity
+                                    style={[styles.iconBtn]}
+                                    onPress={() => openMaps(undefined, undefined, 'Delivery Address', order.userAddress || undefined)}
+                                >
+                                    <Ionicons name="search-outline" size={16} color={theme.green} />
+                                    <Text style={[styles.iconBtnText, { color: theme.green }]}>Search Address</Text>
+                                </TouchableOpacity>
+                            </View>
+                            <TouchableOpacity
+                                style={[styles.btn, { backgroundColor: theme.primary }, (isAccepting || activeOrders.length > 0) && { opacity: 0.6 }]}
+                                onPress={() => acceptOrder(order)}
+                                disabled={isAccepting || activeOrders.length > 0}
+                            >
+                                {accepting === order.id
+                                    ? <ActivityIndicator color="#fff" size="small" />
+                                    : <>
+                                        <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
+                                        <Text style={styles.btnText}>
+                                            {activeOrders.length > 0 ? 'Finish Current Delivery First' : 'Accept Delivery'}
+                                        </Text>
+                                    </>
+                                }
                             </TouchableOpacity>
-                        )}
-                        <TouchableOpacity 
-                            style={[styles.iconBtn]} 
-                            onPress={() => openMaps(undefined, undefined, 'Delivery Address', order.userAddress || undefined)}
-                        >
-                            <Ionicons name="search-outline" size={16} color={theme.green} />
-                            <Text style={[styles.iconBtnText, { color: theme.green }]}>Search Address</Text>
-                        </TouchableOpacity>
-                    </View>
-                    <TouchableOpacity
-                        style={[styles.btn, { backgroundColor: theme.primary }, (isAccepting || activeOrders.length > 0) && { opacity: 0.6 }]}
-                        onPress={() => acceptOrder(order)}
-                        disabled={isAccepting || activeOrders.length > 0}
-                    >
-                        {accepting === order.id
-                            ? <ActivityIndicator color="#fff" size="small" />
-                            : <>
-                                <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-                                <Text style={styles.btnText}>
-                                    {activeOrders.length > 0 ? 'Finish Current Delivery First' : 'Accept Delivery'}
-                                </Text>
-                            </>
-                        }
-                    </TouchableOpacity>
-                </Card>
-            ))}
+                        </Card>
+                    </StaggerCard>
+                );
+            })}
         </ScrollView>
     );
 
     const renderActive = () => (
-        <ScrollView contentContainerStyle={styles.tabContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+            contentContainerStyle={styles.tabContent}
+            showsVerticalScrollIndicator={false}
+            onScroll={ptr.handleScroll}
+            scrollEventThrottle={ptr.scrollEventThrottle}
+            refreshControl={ptr.refreshControl}
+        >
             <Text style={styles.sectionHeader}>Active Delivery</Text>
             {activeOrders.length === 0 && (
-                <View style={styles.emptyBox}>
-                    <Text style={{ fontSize: 40, marginBottom: 10 }}>✅</Text>
-                    <Text style={styles.emptyText}>No active deliveries.</Text>
-                    <Text style={[styles.emptyText, { fontSize: 13, marginTop: 6 }]}>Accept an order to start delivering.</Text>
-                </View>
+                <EmptyState variant="no-orders-rider" />
             )}
             {activeOrders.map(order => (
                 <Card key={order.id} style={{ gap: 12, padding: 0, overflow: 'hidden' }}>
@@ -885,7 +942,13 @@ export default function Rider() {
     );
 
     const renderEarnings = () => (
-        <ScrollView contentContainerStyle={styles.tabContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+            contentContainerStyle={styles.tabContent}
+            showsVerticalScrollIndicator={false}
+            onScroll={ptr.handleScroll}
+            scrollEventThrottle={ptr.scrollEventThrottle}
+            refreshControl={ptr.refreshControl}
+        >
             <Text style={styles.sectionHeader}>Earnings Overview</Text>
 
             <View style={styles.statsGrid}>

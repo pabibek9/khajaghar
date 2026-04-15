@@ -12,6 +12,7 @@ import {
 import { auth, db } from '../src/constants/firebase';
 import { useNotifications } from '../src/components/NotificationProvider';
 import NotificationBell from '../src/components/NotificationBell';
+import { clearSession } from '../src/services/authService';
 
 // --- ENTERPRISE THEME TOKENS ---
 // --- ENTERPRISE THEME TOKENS ---
@@ -532,14 +533,14 @@ export default function AdminPanel() {
 
       if (snap.empty) {
         Alert.alert('Access Denied', 'Admin profile not found.');
-        signOut(auth);
+        clearSession().then(() => signOut(auth));
         return;
       }
 
       const userData = snap.docs[0].data();
       if (userData.role !== 'admin') {
         Alert.alert('Access Denied', 'This panel is for administrators only.');
-        signOut(auth);
+        clearSession().then(() => signOut(auth));
         return;
       }
 
@@ -580,6 +581,7 @@ export default function AdminPanel() {
 
   const handleLogout = async () => {
     try {
+      await clearSession();
       await signOut(auth);
       router.replace('/login');
     } catch (e) {

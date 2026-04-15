@@ -10,6 +10,7 @@ import { router } from 'expo-router';
 import { createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../src/constants/firebase';
+import { clearSession } from '../src/services/authService';
 
 const theme = {
     bg: '#0A0A0A', card: '#1C1C1E', input: '#2C2C2E',
@@ -51,6 +52,7 @@ export default function RiderSignup() {
                 uid = cred.user.uid;
             } else if (auth.currentUser?.email !== email.trim()) {
                 // Logged in as someone else? Force logout or error
+                await clearSession();
                 await signOut(auth);
                 const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
                 uid = cred.user.uid;
@@ -98,6 +100,7 @@ export default function RiderSignup() {
 
             // Wait 3 seconds, then sign out and go to login
             setTimeout(async () => {
+                await clearSession();
                 await signOut(auth);
                 router.replace('/login');
             }, 3000);
