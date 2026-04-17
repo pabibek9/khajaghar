@@ -104,13 +104,31 @@ export default function LocationSelector() {
             let { status } = await Location.requestForegroundPermissionsAsync();
             if (status !== 'granted') {
                 setErrorMsg('Permission to access location was denied');
-                Alert.alert('Permission Denied', 'Please allow location access in your settings to use this feature.');
+                Alert.alert(
+                    'Permission Denied',
+                    'Location permission is required to use this feature.\n\nPlease enable it in Settings: Settings → Apps → Khaja → Permissions → Location',
+                    [
+                        { text: 'OK', onPress: () => {} },
+                        { text: 'Settings', onPress: () => {
+                            if (Platform.OS === 'android') {
+                                // Android: Open app settings
+                                try {
+                                    // This is a fallback - the exact intent may vary
+                                    Alert.alert('Open Settings', 'Please manually go to Settings → Apps → Khaja → Permissions');
+                                } catch (e) {
+                                    console.error('Could not open settings:', e);
+                                }
+                            }
+                        }}
+                    ]
+                );
                 setLoading(false);
                 return;
             }
 
             let location = await Location.getCurrentPositionAsync({
-                accuracy: Location.Accuracy.Highest,
+                accuracy: Location.Accuracy.Balanced,
+                timeout: 10000, // 10 second timeout for slow devices
             });
 
             const newPos = {
@@ -120,8 +138,12 @@ export default function LocationSelector() {
 
             updateState(newPos);
         } catch (error: any) {
-            setErrorMsg('Could not fetch location');
-            Alert.alert('Error', error.message || 'GPS failed. Please try manual search.');
+            console.error('Location error:', error);
+            setErrorMsg('Could not fetch location. Try manual search or enable GPS.');
+            Alert.alert(
+                'Location Error',
+                'GPS failed or timed out. You can still search for your location manually.'
+            );
         } finally {
             setLoading(false);
         }

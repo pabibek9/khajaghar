@@ -1156,7 +1156,7 @@ export default function UserHome() {
         // Re-open the purchase modal so the user can try again once online.
         setShow(true);
       }
-      // ───────────────────────────────────────────────────────────────────────
+
     } catch (e: any) {
       console.error("Order failed:", e);
       Alert.alert('Error', e?.message || 'Failed to place order');
