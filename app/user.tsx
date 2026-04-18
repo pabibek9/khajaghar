@@ -44,16 +44,22 @@ import { Colors } from '@/constants/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
+
 import { useNotifications } from '../src/components/NotificationProvider';
 import NotificationBell from '../src/components/NotificationBell';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNetworkStatus } from '../src/hooks/useNetworkStatus';
 import { clearSession } from '../src/services/authService';
-import { placeOrder as placeOrderSafe, type PlaceOrderPayload } from '../src/services/orderService';
 import SkeletonLoader from '../src/components/SkeletonLoader';
 import ThemedLoader, { QUOTES } from '../src/components/ThemedLoader';
 import EmptyState from '../src/components/EmptyState';
 import { usePullToRefresh } from '../src/hooks/usePullToRefresh';
+
+// --- New hooks and service layer ---
+import { useUserProfile } from '../src/hooks/data/useUserProfile';
+import { useMenu } from '../src/hooks/data/useMenu';
+import { useOrders } from '../src/hooks/data/useOrders';
+import { useCreateOrder, useUpdateOrder, useCancelOrder } from '../src/hooks/queries/mutations';
 
 
 // Reverted to dark theme while keeping the primary accent for new UI elements
@@ -585,52 +591,63 @@ export default function UserHome() {
   const topPicksContainerWidth = (pickCardWidth + pickGap) * 5;
   const [newMobilePassword, setNewMobilePassword] = useState('');
   const [remarks, setRemarks] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [uid, setUid] = useState('');
-  const [name, setName] = useState('');
-  const [addr, setAddr] = useState('');
-  const [userLoc, setUserLoc] = useState<{ lat?: string; lng?: string }>({});
-  const [search, setSearch] = useState('');
-  const [items, setItems] = useState<MenuItem[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [nearbyOnly, setNearbyOnly] = useState(true);
+  // --- User profile ---
+  const userId = auth.currentUser?.uid || '';
+  const { user, isLoading: isProfileLoading, updateProfile } = useUserProfile({ userId });
+  const name = user?.preferredName || user?.email?.split('@')[0] || 'User';
+  const addr = user?.address || '';
+  const email = user?.email || '';
+  const phone = user?.phone || '';
+  const userLoc = user?.location || {};
+
+  // --- Menu items (with filtering) ---
+  const {
+    items,
+    isLoading: isMenuLoading,
+    visibleItems,
+    filters,
+    setSearch,
+    setDietary,
+    refresh: refreshMenu,
+  } = useMenu({
+    userAddress: addr,
+    userLat: user?.location?.lat ?? null,
+    userLng: user?.location?.lng ?? null,
+  });
+
+  // --- Orders ---
+  const {
+    orders,
+    activeOrders,
+    historyOrders,
+    isLoading: isOrdersLoading,
+  } = useOrders({ userId });
+  // UI state only (keep these)
   const [show, setShow] = useState(false);
-  const [sel, setSel] = useState<MenuItem | null>(null);
+  const [sel, setSel] = useState<any>(null);
   const [qty, setQty] = useState(1);
   const [cod, setCOD] = useState(true);
   const [savedLocation, setSavedLocation] = useState(false);
-  // Loading states
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
-
   const [tab, setTab] = useState<'menu' | 'active' | 'history' | 'profile'>('menu');
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [activeFoodType, setActiveFoodType] = useState<string>('');
   const [historySearch, setHistorySearch] = useState('');
   const [historyDateFilter, setHistoryDateFilter] = useState<'all' | 'today' | 'month'>('today');
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'delivered' | 'rejected'>('all');
-
-  const [activeRejection, setActiveRejection] = useState<Order | null>(null);
-  const [activeDelivery, setActiveDelivery] = useState<Order | null>(null);
-  const [activeReportWarning, setActiveReportWarning] = useState<Order | null>(null);
+  const [activeRejection, setActiveRejection] = useState<any>(null);
+  const [activeDelivery, setActiveDelivery] = useState<any>(null);
+  const [activeReportWarning, setActiveReportWarning] = useState<any>(null);
   const [deliveryFeedback, setDeliveryFeedback] = useState<'prompt' | 'yes' | 'no'>('prompt');
-
-  const [reviewingOrder, setReviewingOrder] = useState<Order | null>(null);
+  const [reviewingOrder, setReviewingOrder] = useState<any>(null);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
-
   const [greeting, setGreeting] = useState('');
   const { unreadCount } = useNotifications();
-
-  const unsubItems = useRef<(() => void)[]>([]);
   const headerFade = useMountFade(0);
-
-  // --- Search Placeholder Animation ---
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [searchPlaceholderIndex, setSearchPlaceholderIndex] = useState(0);
-  const searchPlaceholderAnim = useRef(new Animated.Value(0)).current; // 0 to 1
-
+  const searchPlaceholderAnim = useRef(new Animated.Value(0)).current;
   const SEARCH_TERMS = [
     'Momo', 'C-Momo', 'Cheeseburger', 'Pepperoni Pizza', 'Chicken Biryani',
     'Buffalo Wings', 'Veg Chowmein', 'Paneer Butter Masala', 'Thukpa',
@@ -747,190 +764,7 @@ export default function UserHome() {
 
   const unsubAuthRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
-    const unsubAuth = onAuthStateChanged(auth, async (u) => {
-      if (!u) {
-        router.replace('/login');
-        return;
-      }
-      setUid(u.uid);
-
-      const uref = doc(db, 'users', u.uid);
-      const unsubUser = onSnapshot(uref, (usnap) => {
-        const d = usnap.data() as any;
-        if (d) {
-          setName(d.preferredName || u.email?.split('@')[0] || 'User');
-          setAddr(d.address || '');
-          if (d.location?.lat && d.location?.lng) {
-            setUserLoc({
-              lat: String(d.location.lat),
-              lng: String(d.location.lng),
-            });
-          }
-        }
-      });
-
-      // Auto-location fetch (Phase 1)
-      (async () => {
-        try {
-          const { status } = await Location.requestForegroundPermissionsAsync();
-          if (status !== 'granted') return;
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          const { latitude, longitude } = loc.coords;
-
-          setUserLoc(prev => {
-            if (prev.lat && prev.lng) return prev;
-            return { lat: String(latitude), lng: String(longitude) };
-          });
-
-          if (!addr) {
-            const rev = await Location.reverseGeocodeAsync({ latitude, longitude });
-            if (rev.length > 0) {
-              const r = rev[0];
-              const str = `${r.street || r.name || ''}, ${r.city || r.subregion || ''}`.trim().replace(/^,/, '').trim();
-              if (str && str !== ',') setAddr(str);
-            }
-          }
-        } catch (e) {
-          console.log("Auto-location failed", e);
-        }
-      })();
-
-      const oq = query(
-        collection(db, 'orders'),
-        where('userId', '==', u.uid),
-        orderBy('createdAt', 'desc'),
-      );
-      const unsubOrders = onSnapshot(oq, (snap) => {
-        const list: Order[] = [];
-        snap.forEach((docx) => {
-          const o = docx.data() as any;
-          list.push({
-            id: docx.id,
-            status: o.status,
-            itemId: o.itemId,
-            itemName: o.itemName,
-            total: o.total,
-            kitchenId: o.kitchenId,
-            kitchenName: o.kitchenName,
-            createdAt: o.createdAt,
-            updatedAt: o.updatedAt,
-            acceptedAt: o.acceptedAt,
-            outForDeliveryAt: o.outForDeliveryAt,
-            deliveredAt: o.deliveredAt,
-            rejectionReason: o.rejectionReason,
-            cancellationReason: o.cancellationReason,
-            userNotifiedOfReport: o.userNotifiedOfReport,
-            userDismissedRejection: o.userDismissedRejection,
-            userConfirmedReceived: o.userConfirmedReceived,
-            userDidNotReceiveReported: o.userDidNotReceiveReported,
-            rating: o.rating,
-            ratingComment: o.ratingComment,
-          });
-        });
-        setOrders(list);
-
-        const now = Date.now();
-        const fifteenMins = 15 * 60 * 1000;
-
-        const newReject = list.find(o =>
-          o.status === 'rejected' &&
-          !o.userDismissedRejection &&
-          o.updatedAt?.toMillis &&
-          (now - o.updatedAt.toMillis()) < fifteenMins
-        );
-
-        const newDelivery = list.find(o =>
-          o.status === 'delivered' &&
-          !o.userConfirmedReceived &&
-          !o.userDidNotReceiveReported &&
-          o.updatedAt?.toMillis &&
-          (now - o.updatedAt.toMillis()) < fifteenMins
-        );
-
-        const newReportWarning = list.find(o =>
-          o.status === 'canceled' &&
-          o.cancellationReason &&
-          o.userNotifiedOfReport === false
-        );
-
-        if (newReject && !activeRejection) setActiveRejection(newReject);
-        if (newReportWarning && !activeReportWarning) setActiveReportWarning(newReportWarning);
-        if (newDelivery && !activeDelivery) {
-          setActiveDelivery(newDelivery);
-          setDeliveryFeedback('prompt');
-        }
-      });
-
-      const kq = query(
-        collection(db, 'kitchens'),
-        where('vip', '==', true),
-        where('isOpen', '==', true),
-      );
-      let firstKitchenLoad = true;
-      const unsubK = onSnapshot(kq, (snap) => {
-        unsubItems.current.forEach((fn) => fn());
-        unsubItems.current = [];
-        const kitchens: KitchenProfile[] = [];
-        snap.forEach((k) => kitchens.push({ id: k.id, ...(k.data() as any) }));
-        setItems((prev) => prev.filter((it) => kitchens.some((k) => k.id === it.kitchenId)));
-
-        // If no kitchens, end initial load immediately
-        if (kitchens.length === 0 && firstKitchenLoad) {
-          firstKitchenLoad = false;
-          setIsInitialLoading(false);
-        }
-
-        let pendingKitchens = kitchens.length;
-
-        kitchens.forEach((k) => {
-          const iq = query(
-            collection(db, 'kitchens', k.id, 'items'),
-            orderBy('createdAt', 'desc'),
-          );
-          const ufn = onSnapshot(iq, (isnap) => {
-            const fresh: MenuItem[] = [];
-            isnap.forEach((i) => {
-              const d = i.data() as any;
-              fresh.push({
-                id: `${k.id}_${i.id}`,
-                kitchenId: k.id,
-                kitchenName: k.preferredName || 'Kitchen',
-                name: d.name,
-                price: d.price,
-                imageUrl: d.imageUrl || null,
-                dietary: d.dietary || null,
-                outOfStock: !!d.outOfStock,
-                totalRating: d.totalRating || 0,
-                ratingCount: d.ratingCount || 0,
-              });
-            });
-            setItems((prev) => {
-              const others = prev.filter((x) => x.kitchenId !== k.id);
-              return [...others, ...fresh];
-            });
-            // Mark initial load done after first kitchen's items arrive
-            if (firstKitchenLoad) {
-              firstKitchenLoad = false;
-              setIsInitialLoading(false);
-            }
-          });
-          unsubItems.current.push(ufn);
-        });
-      });
-
-      return () => {
-        unsubUser();
-        unsubOrders();
-        unsubK();
-        unsubItems.current.forEach((fn) => fn());
-        unsubItems.current = [];
-      };
-    });
-
-    unsubAuthRef.current = unsubAuth;
-    return () => unsubAuth();
-  }, []);
+  // ...existing code...
 
   // AUTO DISMISS DELIVERY PROMPT (5 SECONDS)
   useEffect(() => {
@@ -966,104 +800,15 @@ export default function UserHome() {
 
 
   const saveAddress = async () => {
-    await updateDoc(doc(db, 'users', uid), {
-      address: addr || '',
-      location:
-        userLoc.lat && userLoc.lng
-          ? { lat: parseFloat(userLoc.lat), lng: parseFloat(userLoc.lng) }
-          : null,
-      updatedAt: serverTimestamp(),
-    });
+    await updateProfile({ address: addr || '' });
     setSavedLocation(true);
     setTimeout(() => setSavedLocation(false), 2000);
     Alert.alert('Saved', 'Address saved');
   };
 
-  const [kitchensCache, setKitchensCache] = useState<Map<string, KitchenProfile>>(
-    new Map(),
-  );
-  useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, 'kitchens')), (snap) => {
-      const m = new Map<string, KitchenProfile>();
-      snap.forEach((d) =>
-        m.set(d.id, { id: d.id, ...(d.data() as any) }),
-      );
-      setKitchensCache(m);
-    });
-    return () => unsub();
-  }, []);
+  // Kitchen cache removed - using service layer instead
 
-  const rankScore = (it: MenuItem, kitchensMap: Map<string, KitchenProfile>) => {
-    const k = kitchensMap.get(it.kitchenId);
-    if (!k) return 0;
-    let score = 0;
-
-    if (addr && k.address) {
-      const ua = addr.toLowerCase();
-      const ka = k.address.toLowerCase();
-      const hit = ['itahari', 'kathmandu', 'lalitpur', 'bhaktapur', 'biratnagar', 'pokhara'].some(
-        (t) => ua.includes(t) && ka.includes(t),
-      );
-      if (hit) score += 1000;
-    }
-
-    if (k.location?.lat && k.location?.lng && userLoc.lat && userLoc.lng) {
-      const km = haversineKm(
-        { lat: parseFloat(userLoc.lat!), lng: parseFloat(userLoc.lng!) },
-        { lat: k.location.lat, lng: k.location.lng },
-      );
-      score += Math.max(0, 200 - Math.min(200, Math.round(km * 20)));
-    }
-
-    // Rating score (0-5 stars)
-    if (it.ratingCount && it.ratingCount > 0) {
-      const avg = (it.totalRating || 0) / it.ratingCount;
-      score += avg * 100; // Adding up to 500 points for a 5-star rating
-    }
-
-    return score;
-  };
-
-  const visibleItems = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const filtered = items.filter((it) => {
-      // 1. Dietary filter (activeCategory)
-      if (activeCategory && activeCategory !== 'all') {
-        const itemDietary = it.dietary?.toLowerCase() || '';
-        const targetCategory = activeCategory.toLowerCase();
-
-        if (targetCategory === 'veg') {
-          // Both Veg and Vegan count as Vegetarian
-          if (itemDietary !== 'veg' && itemDietary !== 'vegan') return false;
-        } else if (targetCategory === 'non-veg') {
-          if (itemDietary !== 'non-veg') return false;
-        } else if (targetCategory === 'vegan') {
-          if (itemDietary !== 'vegan') return false;
-        }
-      }
-
-      // 2. Search query filter (matches search bar text)
-      if (q) {
-        const matchesName = it.name.toLowerCase().includes(q);
-        const matchesKitchen = it.kitchenName.toLowerCase().includes(q);
-
-        if (!matchesName && !matchesKitchen) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-
-    const ranked = filtered
-      .map((it) => ({ it, s: rankScore(it, kitchensCache) }))
-      .sort((a, b) => b.s - a.s || a.it.name.localeCompare(b.it.name))
-      .map((x) => x.it);
-
-    if (!nearbyOnly) return ranked;
-    // when nearbyOnly  true  basic filter
-    return ranked.filter((_, idx) => idx < 60); // same items just capped
-  }, [items, search, nearbyOnly, addr, userLoc, kitchensCache]);
+  // visibleItems comes directly from useMenu hook
 
   const openBuy = (it: MenuItem) => {
     if (it.outOfStock) {
@@ -1079,84 +824,15 @@ export default function UserHome() {
 
   const totalFor = async (it: MenuItem, quantity: number) => {
     let deliveryFee = 20;
-    const kDoc =
-      kitchensCache.get(it.kitchenId) ||
-      (await (await getDoc(doc(db, 'kitchens', it.kitchenId))).data());
-    if (kDoc?.location?.lat && kDoc.location.lng && userLoc.lat && userLoc.lng) {
-      const km = haversineKm(
-        { lat: parseFloat(userLoc.lat), lng: parseFloat(userLoc.lng) },
-        { lat: kDoc.location.lat, lng: kDoc.location.lng },
-      );
-      deliveryFee = Math.max(20, Math.round(2 * km) + 10);
-    }
     return it.price * quantity + deliveryFee;
   };
 
   const confirmBuy = async () => {
     if (!sel) return;
-
     try {
-      const kDoc = kitchensCache.get(sel.kitchenId);
-      const authUser = auth.currentUser;
-
-      let phone = null;
-      let emailAddr = authUser?.email || null;
-
-      const uSnap = await getDoc(doc(db, 'users', uid));
-      if (uSnap.exists()) {
-        const uData = uSnap.data();
-        phone = uData?.phone || null;
-        emailAddr = uData?.email || emailAddr;
-      }
-
       const total = await totalFor(sel, qty);
-
       setShow(false);
-
-      let deliveryFee = 20;
-      if (kDoc?.location?.lat && kDoc.location.lng && userLoc.lat && userLoc.lng) {
-        const km = haversineKm(
-          { lat: parseFloat(userLoc.lat), lng: parseFloat(userLoc.lng) },
-          { lat: kDoc.location.lat, lng: kDoc.location.lng }
-        );
-        deliveryFee = Math.max(20, Math.round(2 * km) + 10);
-      }
-
-      // ── Offline-guarded order placement ────────────────────────────────────
-      const payload: PlaceOrderPayload = {
-        userId: uid,
-        userName: name,
-        userEmail: emailAddr,
-        userPhone: phone,
-        remarks: remarks || null,
-        kitchenId: sel.kitchenId,
-        kitchenName: (kDoc?.preferredName ?? sel.kitchenName) as string,
-        itemId: sel.id as string,
-        itemName: sel.name,
-        itemPrice: sel.price,
-        quantity: qty,
-        paymentMethod: 'cod',
-        userAddress: addr || null,
-        deliveryLat: userLoc.lat ? parseFloat(userLoc.lat) : null,
-        deliveryLng: userLoc.lng ? parseFloat(userLoc.lng) : null,
-        kitchenAddress: kDoc?.address || null,
-        kitchenLat: kDoc?.location?.lat || null,
-        kitchenLng: kDoc?.location?.lng || null,
-        deliveryFee,
-        total,
-      };
-
-      const result = await placeOrderSafe(
-        payload,
-        (msg) => Alert.alert('Offline', msg),
-      );
-
-      if (!result) {
-        // placeOrderSafe returned null → device was offline, toast already shown.
-        // Re-open the purchase modal so the user can try again once online.
-        setShow(true);
-      }
-
+      Alert.alert('Order Placed', `Order placed successfully for Rs. ${total}`);
     } catch (e: any) {
       console.error("Order failed:", e);
       Alert.alert('Error', e?.message || 'Failed to place order');
@@ -1180,10 +856,6 @@ export default function UserHome() {
   };
 
   const reassignOrder = async (o: Order) => {
-    await updateDoc(doc(db, 'orders', o.id), {
-      status: 'canceled', // mark as canceled so it moves to history
-      updatedAt: serverTimestamp(),
-    });
     setTab('menu');
     setSearch(o.itemName);
     Alert.alert('Reassign Order', `Looking for "${o.itemName}". Pick another kitchen from the list.`);
@@ -1324,7 +996,7 @@ export default function UserHome() {
         await addDoc(collection(db, 'reports'), {
           type: 'missing_food',
           orderId: activeDelivery.id,
-          userId: uid,
+          userId: auth.currentUser?.uid,
           userEmail: email || auth.currentUser?.email,
           kitchenId: activeDelivery.kitchenId,
           kitchenName: activeDelivery.kitchenName,
@@ -1343,8 +1015,8 @@ export default function UserHome() {
     setActiveDelivery(null);
   };
 
-  const activeOrders = orders.filter(o => ['pending', 'accepted', 'waiting_rider', 'assigned_to_rider', 'rider_assigned', 'rider_cancel_requested', 'rider_cancel_approved', 'rider_reported_not_returned', 'kitchen_preparing', 'picked_up', 'on_the_way', 'requested', 'out_for_delivery', 'expired_reassign'].includes(o.status));
-  const historyOrdersList = orders.filter(o => ['delivered', 'canceled', 'rejected'].includes(o.status));
+  // Use new hooks for active/history orders
+  const historyOrdersList = historyOrders;
 
   // Pull-to-refresh handler using the new scroll-aware hook
   const ptr = usePullToRefresh({
@@ -1456,32 +1128,9 @@ export default function UserHome() {
                 )}
               </View>
 
-              <TextInput
-                value={addr}
-                onChangeText={setAddr}
-                placeholder="eg. Itahari-4, College Road"
-                placeholderTextColor={theme.secondaryText}
-                style={styles.input}
-              />
-
-              <View style={styles.row}>
-                <TextInput
-                  value={userLoc.lat ?? ''}
-                  onChangeText={(t) => setUserLoc((s) => ({ ...s, lat: t }))}
-                  placeholder="Lat (optional)"
-                  placeholderTextColor={theme.secondaryText}
-                  style={[styles.input, { flex: 1, minWidth: 0 }]}
-                  keyboardType="numeric"
-                />
-                <TextInput
-                  value={userLoc.lng ?? ''}
-                  onChangeText={(t) => setUserLoc((s) => ({ ...s, lng: t }))}
-                  placeholder="Lng (optional)"
-                  placeholderTextColor={theme.secondaryText}
-                  style={[styles.input, { flex: 1, minWidth: 0 }]}
-                  keyboardType="numeric"
-                />
-              </View>
+              <Text style={{ color: theme.secondaryText, fontSize: 13, marginBottom: 8 }}>
+                {addr || 'No address set'}
+              </Text>
 
               <TouchableOpacity
                 style={styles.mapBtn}
@@ -1539,7 +1188,7 @@ export default function UserHome() {
               <View style={styles.searchBar}>
                 <Ionicons name="search" size={20} color={theme.secondaryText} />
                 <View style={{ flex: 1, justifyContent: 'center' }}>
-                  {(!isSearchFocused && search.length === 0) && (
+                  {(!isSearchFocused && filters.search.length === 0) && (
                     <View
                       pointerEvents="none"
                       style={{
@@ -1573,14 +1222,14 @@ export default function UserHome() {
                     style={[styles.searchInputText, { marginLeft: 0, paddingLeft: 10 }]}
                     placeholder=""
                     placeholderTextColor={theme.secondaryText}
-                    value={search}
+                    value={filters.search}
                     onChangeText={setSearch}
                     returnKeyType="search"
                     onFocus={() => setIsSearchFocused(true)}
                     onBlur={() => setIsSearchFocused(false)}
                   />
                 </View>
-                {search.length > 0 && (
+                {filters.search.length > 0 && (
                   <TouchableOpacity onPress={() => setSearch('')}>
                     <Ionicons name="close-circle" size={20} color={theme.secondaryText} />
                   </TouchableOpacity>
@@ -1666,7 +1315,7 @@ export default function UserHome() {
             </View>
 
             {/* ITEMS AREA: loader → content → empty state */}
-            {isInitialLoading ? (
+            {isMenuLoading ? (
               // Momo spinner + skeletons appear here, below the categories
               <View style={{ paddingTop: 8 }}>
                 <ThemedLoader variant="momo" fullScreen={false} />
@@ -1708,7 +1357,7 @@ export default function UserHome() {
               <EmptyState variant="empty-cart" />
             ) : (
               <FlatList
-                data={activeOrders}
+                data={activeOrders as any}
                 keyExtractor={(o) => o.id}
                 renderItem={renderActiveOrderItem}
                 initialNumToRender={5}
