@@ -7,7 +7,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, Dimensions, Platform, ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View,
-  SafeAreaView, StatusBar, Linking
+  SafeAreaView, StatusBar, Linking, Image
 } from 'react-native';
 import { auth, db } from '../src/constants/firebase';
 import { useNotifications } from '../src/components/NotificationProvider';
@@ -618,8 +618,11 @@ export default function AdminPanel() {
       {/* --- SIDEBAR --- */}
       <View style={[styles.sidebar, sidebarCollapsed && styles.sidebarCollapsed]}>
         <View style={styles.logoRow}>
-          <MaterialCommunityIcons name="shield-crown" size={28} color={theme.primary} />
-          {!sidebarCollapsed && <Text style={styles.logoText}>KHAJA <Text style={{ color: theme.primary }}>ADMIN</Text></Text>}
+          <Image
+            source={require('../assets/images/no bg .png')}
+            style={{ width: 36, height: 36, resizeMode: 'contain' }}
+          />
+          {!sidebarCollapsed && <Text style={styles.logoText}>KHAJAGHAR <Text style={{ color: theme.primary }}>ADMIN</Text></Text>}
         </View>
 
         <ScrollView style={styles.navScroll} showsVerticalScrollIndicator={false}>

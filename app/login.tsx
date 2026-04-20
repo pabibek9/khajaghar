@@ -28,6 +28,7 @@ import {
   ScrollView,
   StyleSheet,
   Pressable,
+  Image,
 } from 'react-native';
 import { auth, db, googleProvider, oauthIds } from '../src/constants/firebase';
 import { useNetworkStatus } from '../src/hooks/useNetworkStatus';
@@ -214,10 +215,13 @@ export default function Login() {
         {/* Logo / Brand */}
         <View style={styles.brandSection}>
           <View style={styles.logoCircle}>
-            <Text style={styles.logoEmoji}>🍱</Text>
+            <Image
+              source={require('../assets/images/no bg .png')}
+              style={{ width: 70, height: 70, resizeMode: 'contain' }}
+            />
           </View>
-          <Text style={styles.brandName}>Khaja</Text>
-          <Text style={styles.brandTagline}>Good food, delivered fast.</Text>
+          <Text style={styles.brandName}>Khajaghar</Text>
+          <Text style={styles.brandTagline}>Fastest Food Delivery</Text>
         </View>
 
         {/* Form Card */}

@@ -1,6 +1,6 @@
 // src/hooks/usePaginatedFetch.ts
 //
-// Reusable Firestore pagination hook for the Khaja app.
+// Reusable Firestore pagination hook for the Khajaghar app.
 // Implements cursor-based pagination using startAfter() with a
 // configurable page size (default 10).
 //

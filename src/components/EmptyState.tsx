@@ -1,6 +1,6 @@
 // src/components/EmptyState.tsx
 //
-// Empty state illustrations for each screen in the Khaja app.
+// Empty state illustrations for each screen in the Khajaghar app.
 // Nepali-flavored text with emoji illustrations.
 // Consistent with the dark theme palette across the app.
 

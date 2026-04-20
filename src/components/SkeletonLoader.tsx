@@ -1,6 +1,6 @@
 // src/components/SkeletonLoader.tsx
 //
-// Reusable shimmer skeleton loaders for the Khaja food delivery app.
+// Reusable shimmer skeleton loaders for the Khajaghar food delivery app.
 // Shimmer: warm saffron gold (#F4A62A) → light cream (#FFF8EE) — Nepali
 // marigold + festival colors. Animates left-to-right, 1.2s loop.
 //

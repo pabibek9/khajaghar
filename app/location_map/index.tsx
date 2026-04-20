@@ -46,8 +46,8 @@ const theme = {
     input: '#2C2C2E',
 };
 
-// Use the Firebase API Key for Google Places (ensure Places API is enabled in GCP console)
-const GOOGLE_MAPS_APIKEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY;
+// Use the Google Maps API Key (ensure Maps API and Places API are enabled in GCP console)
+const GOOGLE_MAPS_APIKEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
 
 export default function LocationSelector() {
     const [region, setRegion] = useState({

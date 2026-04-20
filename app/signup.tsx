@@ -22,6 +22,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { auth, db } from '../src/constants/firebase';
@@ -250,8 +251,13 @@ export default function Signup() {
             <Ionicons name="chevron-back" size={22} color={theme.text} />
           </TouchableOpacity>
           <View style={sf.headerCenter}>
-            <Text style={sf.title}>Create Account</Text>
-            <Text style={sf.subtitle}>Join Khaja today 🍱</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+              <Text style={sf.subtitle}>Join Khajaghar</Text>
+              <Image
+                source={require('../assets/images/no bg .png')}
+                style={{ width: 20, height: 20, resizeMode: 'contain' }}
+              />
+            </View>
           </View>
           <View style={{ width: 40 }} />
         </View>

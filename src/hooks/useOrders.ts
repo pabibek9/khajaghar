@@ -225,7 +225,7 @@ export function useOrders(uid: string | null): UseOrdersResult {
           to: userEmail,
           message: {
             subject: 'We are so sorry!',
-            text: `Hi ${userName},\n\nWe apologize that you did not receive your order (${activeDelivery.itemName}) from ${activeDelivery.kitchenName}.\n\nWe are investigating this immediately.\n\nThank you,\nThe Khaja Team`,
+            text: `Hi ${userName},\n\nWe apologize that you did not receive your order (${activeDelivery.itemName}) from ${activeDelivery.kitchenName}.\n\nWe are investigating this immediately.\n\nThank you,\nThe Khajaghar Team`,
           },
         });
 

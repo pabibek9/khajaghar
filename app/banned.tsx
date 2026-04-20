@@ -48,7 +48,7 @@ export default function Banned() {
             } else {
                 Alert.alert(
                     'Still Unverified',
-                    "We couldn't verify your email yet. Please find the mail from Khaja and click the link. Double-check your Spam folder!"
+                    "We couldn't verify your email yet. Please find the mail from Khajaghar and click the link. Double-check your Spam folder!"
                 );
             }
         } catch (error: any) {
@@ -80,7 +80,7 @@ export default function Banned() {
                     <View style={styles.cardTextContainer}>
                         <Text style={styles.cardTitle}>How to Unrestrict:</Text>
                         <Text style={styles.cardDescription}>
-                            1. Look for a verification email from Khaja.
+                            1. Look for a verification email from Khajaghar.
                         </Text>
                         <Text style={styles.cardDescription}>
                             2. Click the link inside the email.

@@ -100,4 +100,4 @@ export function useDeleteOrder(
     ...options,
   });
 }
-}
+

@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "Khajaghar",
+    "slug": "khajaghar",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/final logo .png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/images/final logo .png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTabletMode": true,
+      "bundleIdentifier": "com.khajaghar.app",
+      "buildNumber": "1"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/final logo .png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.khajaghar.app"
+    },
+    "web": {
+      "favicon": "./assets/images/final logo .png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Khajaghar to use your location."
+        }
+      ]
+    ],
+    "scheme": "khajaghar"
+  }
+}

@@ -1655,7 +1655,7 @@ export default function UserHome() {
 
             {/* TOP PICKS */}
             <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Top picks on khaja™</Text>
+              <Text style={styles.sectionTitle}>Top picks on Khajaghar™</Text>
               <Pressable style={styles.seeAllBtn} onPress={() => {
                 setActiveCategory('all');
                 setActiveFoodType('');

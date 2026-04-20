@@ -1,5 +1,5 @@
 /**
- * Core type definitions for the Khaja app
+ * Core type definitions for the Khajaghar app
  */
 
 /**

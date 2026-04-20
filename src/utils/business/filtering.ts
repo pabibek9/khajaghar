@@ -1,7 +1,3 @@
-/**
- * Filtering logic for food items
- * Pure functions for filtering and searching
- */
 
 export type DietaryType = 'veg' | 'non-veg' | 'vegan' | 'all';
 export type SortBy = 'name' | 'price' | 'rating' | 'relevance';
