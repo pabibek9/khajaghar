@@ -286,7 +286,7 @@ const styles = StyleSheet.create({
   line: { flex: 1, height: 1, backgroundColor: '#333' },
   guideText: { color: '#444', fontSize: 10, fontWeight: '900', marginHorizontal: 15, letterSpacing: 2 },
 
-  // --- BUTTON STYLES (PRESERVED) ---
+  // --- BUTTON STYLES  ---
   buttonContainer: { width: '100%', gap: 12 },
   row: { flexDirection: 'row', width: '100%', gap: 12, marginBottom: 12, flexWrap: 'wrap' },
   btnBase: {
